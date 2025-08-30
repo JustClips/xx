@@ -6,29 +6,27 @@ from discord.ext import commands
 from discord import app_commands, ui, Interaction, ButtonStyle
 from dotenv import load_dotenv
 
-# Load env vars for Railway/development
+# Load environment variables
 load_dotenv()
 
-# ENVIRONMENT VARIABLES
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 LUARMOR_API_KEY = os.getenv("LUARMOR_API_KEY")
 LUARMOR_PROJECT_ID = os.getenv("LUARMOR_PROJECT_ID")
 BASE_URL = "https://api.luarmor.net/v3"
 
-AUTHORIZED_ROLE = 1405035087703183492
-PANEL_CHANNEL_ID = 1411369197627248830
+AUTHORIZED_ROLE = 1405035087703183492  # Your Discord role ID for access
+PANEL_CHANNEL_ID = 1411369197627248830  # Channel ID where the panel is posted
 
 HEADERS = {
     "Authorization": LUARMOR_API_KEY,
     "Content-Type": "application/json"
 }
 
-# Per-user rate limit tracking for HWID reset (2 hours)
 hwid_reset_timers = {}
 
 intents = discord.Intents.default()
-intents.message_content = True
 intents.guilds = True
+intents.message_content = False
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
@@ -51,13 +49,14 @@ class LuarmorView(ui.View):
         if not await has_role(interaction.user, interaction.guild):
             return await interaction.response.send_message(
                 "You are not authorized to use this!", ephemeral=True)
-        data = safe_api_call(create_key)
+        data = safe_api_call(create_key, interaction.user.id)
         key = data.get("user_key")
         if key:
             msg = f"🔑 **Your generated key:**\n```{key}```"
         else:
             msg = f"❌ Failed to generate key:\n{data.get('message', 'Unknown error')}"
-        await interaction.response.send_message(msg, ephemeral=True)
+        await interaction.user.send(msg)
+        await interaction.response.send_message("✅ Key sent in your DMs!", ephemeral=True)
 
     @ui.button(label="Get Key Info", style=ButtonStyle.blurple, custom_id="get_key")
     async def get_key(self, interaction: Interaction, button: ui.Button):
@@ -103,7 +102,11 @@ class KeyModal(ui.Modal, title="Key Required"):
                 embed.add_field(name="Total Executions", value=str(user.get("total_executions", "0")), inline=True)
                 banned = "Yes" if user.get("banned") else "No"
                 embed.add_field(name="Banned", value=banned, inline=True)
-                await interaction.response.send_message(embed=embed, ephemeral=True)
+                try:
+                    await interaction.user.send(embed=embed)
+                    await interaction.response.send_message("✅ Key info sent in your DMs!", ephemeral=True)
+                except discord.Forbidden:
+                    await interaction.response.send_message("❌ Could not DM you, please enable DMs.", ephemeral=True)
             else:
                 await interaction.response.send_message(
                     f"❌ Failed to fetch key:\n{data.get('message', 'Unknown error')}", ephemeral=True)
@@ -117,7 +120,11 @@ class KeyModal(ui.Modal, title="Key Required"):
             resp = safe_api_call(reset_hwid, key_value)
             if resp.get("success"):
                 hwid_reset_timers[user_id] = now
-                await interaction.response.send_message("✅ HWID reset successful!", ephemeral=True)
+                try:
+                    await interaction.user.send("✅ HWID reset successful!")
+                    await interaction.response.send_message("HWID reset info sent in your DMs!", ephemeral=True)
+                except discord.Forbidden:
+                    await interaction.response.send_message("❌ Could not DM you, please enable DMs.", ephemeral=True)
             else:
                 await interaction.response.send_message(
                     f"❌ Failed to reset HWID:\n{resp.get('message', 'Unknown error')}", ephemeral=True)
@@ -130,10 +137,13 @@ async def has_role(member, guild):
         return False
     return role in getattr(member, "roles", [])
 
-# Luarmor API helpers (just requests, error handled above)
-def create_key():
+# --- Luarmor API helpers ---
+def create_key(discord_id=None):
     url = f"{BASE_URL}/projects/{LUARMOR_PROJECT_ID}/users"
-    return requests.post(url, headers=HEADERS, json={})
+    data = {}
+    if discord_id:
+        data["discord_id"] = str(discord_id)
+    return requests.post(url, headers=HEADERS, json=data)
 
 def get_key_info(user_key):
     url = f"{BASE_URL}/projects/{LUARMOR_PROJECT_ID}/users?user_key={user_key}"
