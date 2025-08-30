@@ -15,13 +15,7 @@ LUARMOR_API_KEY = os.getenv("LUARMOR_API_KEY")
 LUARMOR_PROJECT_ID = os.getenv("LUARMOR_PROJECT_ID")
 BASE_URL = "https://api.luarmor.net/v3"
 
-# CHANGE THIS TO YOUR ROLE ID
-AUTHORIZED_ROLE = 1405035087703183492  # Only users with this role can interact
-
-# Only allow this user to run /panel (replace with your real Discord user ID if you want)
-PANEL_COMMAND_USER_ID = 0  # <--- CHANGE THIS TO YOUR DISCORD USER ID TO RESTRICT, or leave as 0 for all users
-
-# Channel where you want the embed to be sent
+AUTHORIZED_ROLE = 1405035087703183492
 PANEL_CHANNEL_ID = 1411369197627248830
 
 HEADERS = {
@@ -38,7 +32,6 @@ intents.guilds = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# Utility: robust API call
 def safe_api_call(func, *args, **kwargs):
     try:
         resp = func(*args, **kwargs)
@@ -60,9 +53,11 @@ class LuarmorView(ui.View):
                 "You are not authorized to use this!", ephemeral=True)
         data = safe_api_call(create_key)
         key = data.get("user_key")
-        msg = f"**Generated Key:** `{key}`" if key else f"Failed to generate key: {data.get('message', 'Unknown error')}"
-        # Send as a public message in the channel
-        await interaction.response.send_message(msg, ephemeral=False)
+        if key:
+            msg = f"🔑 **Your generated key:**\n```{key}```"
+        else:
+            msg = f"❌ Failed to generate key:\n{data.get('message', 'Unknown error')}"
+        await interaction.response.send_message(msg, ephemeral=True)
 
     @ui.button(label="Get Key Info", style=ButtonStyle.blurple, custom_id="get_key")
     async def get_key(self, interaction: Interaction, button: ui.Button):
@@ -94,36 +89,38 @@ class KeyModal(ui.Modal, title="Key Required"):
             data = safe_api_call(get_key_info, key_value)
             if data.get("success") and data.get('users'):
                 user = data['users'][0]
-                embed = discord.Embed(title="Key Info - eps1llon hub premium", color=discord.Color.blurple())
-                embed.add_field(name="Key", value=user.get("user_key", "-"), inline=False)
+                embed = discord.Embed(
+                    title="Key Info - Eps1llon Hub Premium", color=discord.Color.blurple()
+                )
+                embed.add_field(name="Key", value=f"`{user.get('user_key', '-')}`", inline=False)
                 embed.add_field(name="Status", value=user.get("status", "-"), inline=True)
                 embed.add_field(name="HWID", value=user.get("identifier", "-"), inline=True)
                 embed.add_field(name="Discord ID", value=user.get("discord_id", "-"), inline=True)
                 expires = user.get("auth_expire", -1)
-                expires_fmt = "<never>" if expires == -1 else f"<t:{expires}:f>"
+                expires_fmt = "Never" if expires == -1 else f"<t:{expires}:f>"
                 embed.add_field(name="Expires At", value=expires_fmt, inline=True)
-                embed.add_field(name="Total Resets", value=user.get("total_resets", "0"), inline=True)
-                embed.add_field(name="Total Executions", value=user.get("total_executions", "0"), inline=True)
+                embed.add_field(name="Total Resets", value=str(user.get("total_resets", "0")), inline=True)
+                embed.add_field(name="Total Executions", value=str(user.get("total_executions", "0")), inline=True)
                 banned = "Yes" if user.get("banned") else "No"
                 embed.add_field(name="Banned", value=banned, inline=True)
-                await interaction.response.send_message(embed=embed, ephemeral=False)
+                await interaction.response.send_message(embed=embed, ephemeral=True)
             else:
                 await interaction.response.send_message(
-                    f"Failed to fetch key: {data.get('message', 'Unknown error')}", ephemeral=False)
+                    f"❌ Failed to fetch key:\n{data.get('message', 'Unknown error')}", ephemeral=True)
         elif self.action == "reset":
             now = time.time()
             last = hwid_reset_timers.get(user_id, 0)
             if now - last < 7200:
                 left = int((7200 - (now - last)) / 60)
                 return await interaction.response.send_message(
-                    f"You can reset HWID again in {left} min.", ephemeral=False)
+                    f"You can reset HWID again in {left} minutes.", ephemeral=True)
             resp = safe_api_call(reset_hwid, key_value)
             if resp.get("success"):
                 hwid_reset_timers[user_id] = now
-                await interaction.response.send_message("HWID reset successful!", ephemeral=False)
+                await interaction.response.send_message("✅ HWID reset successful!", ephemeral=True)
             else:
                 await interaction.response.send_message(
-                    f"Failed to reset HWID: {resp.get('message', 'Unknown error')}", ephemeral=False)
+                    f"❌ Failed to reset HWID:\n{resp.get('message', 'Unknown error')}", ephemeral=True)
 
 async def has_role(member, guild):
     if guild is None:
@@ -155,25 +152,25 @@ async def on_ready():
     except Exception as e:
         print(f"Error syncing commands: {e}")
 
-@bot.tree.command(name="panel", description="Post the eps1llon hub premium Luarmor panel in the configured channel.")
+@bot.tree.command(name="panel", description="Post the Eps1llon Hub Premium Luarmor panel in the configured channel.")
 async def panel(interaction: Interaction):
-    # Only allow the panel command in that channel, or by the specified user, or both
     if interaction.channel.id != PANEL_CHANNEL_ID:
         await interaction.response.send_message(
             f"Please use this command in <#{PANEL_CHANNEL_ID}>.", ephemeral=True)
         return
     embed = discord.Embed(
-        title="eps1llon hub premium - Luarmor Panel",
-        description="Manage your license keys and HWID for **eps1llon hub premium**.\n\n"
-                    "**Actions:**\n"
-                    "• Generate Key\n"
-                    "• Get Key Info\n"
-                    "• Reset HWID (once every 2 hours)\n\n"
-                    "Only users with the required role can interact.",
+        title="Eps1llon Hub Premium - Luarmor Panel",
+        description=(
+            "Welcome to the **Eps1llon Hub Premium** License & HWID Management Panel!\n\n"
+            "Use the buttons below to:\n"
+            "• **Generate Key**\n"
+            "• **Get Key Info**\n"
+            "• **Reset HWID** (once every 2 hours)\n\n"
+            "> *Only users with the required role can interact.*"
+        ),
         color=discord.Color.dark_magenta()
     )
-    embed.set_footer(text="eps1llon hub premium | Powered by Luarmor")
-    # Send as a public message in the channel, not ephemeral
+    embed.set_footer(text="Eps1llon Hub Premium | Powered by Luarmor")
     channel = interaction.guild.get_channel(PANEL_CHANNEL_ID)
     if channel:
         await channel.send(embed=embed, view=LuarmorView())
