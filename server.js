@@ -42,6 +42,9 @@ const NICKNAMES = [
 "feet pics for 10$",
 "meow",
 "monkey",
+"My dih tired",
+"MangoMangoMangoMango",
+"Six sevennn"
 
 ];
 
