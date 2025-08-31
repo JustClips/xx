@@ -1,200 +1,162 @@
-import "dotenv/config";
-import {
-  Client,
-  GatewayIntentBits,
-  Partials,
-  Events,
-  PermissionsBitField
-} from "discord.js";
+import os
+import random
+import asyncio
+import discord
+from discord.ext import commands
+from dotenv import load_dotenv
 
-const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
-const CHANNEL_ID = "1410395105965375600"; // Fixed target channel
+# =========================================================
+# Environment Variables (ONLY these two are used)
+# =========================================================
+# DISCORD_TOKEN = your bot token
+# CHANNEL_ID    = the numeric text channel ID where behavior applies
+# =========================================================
 
-if (!DISCORD_TOKEN) {
-  console.error("Missing DISCORD_TOKEN environment variable.");
-  process.exit(1);
-}
+load_dotenv()
+DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
+CHANNEL_ID = os.getenv("CHANNEL_ID")
 
-// Toggle state (default active = true so it works immediately; change to false if you prefer)
-let active = true;
+if not DISCORD_TOKEN or not CHANNEL_ID:
+    raise SystemExit("Missing DISCORD_TOKEN or CHANNEL_ID environment variables.")
 
-const NICKNAMES = [
- "big cock rider",
-"dildo enjoyer",
-"cock rider",
-"pulsar bitch",
-"i bark for free",
-"dm for blowjob",
-"mongoloid",
-"im a zesty kid",
-"dick enjoyer",
-"i love white liquid",
-"sucking dick for 10$",
-"real monkey",
-"monkey with big dick",
-"zesty monkey",
-"i love jerkin off",
-"dm me for free fuck",
-"reverse jerkoff 300",
-"barking cat",
-"6-7?",
-"i will crack yo nuts like a nutcracker",
-"feet pics for 10$",
-"meow",
-"monkey",
-"My dih tired",
-"MangoMangoMangoMango",
-"Six sevennn"
+try:
+    CHANNEL_ID = int(CHANNEL_ID)
+except ValueError:
+    raise SystemExit("CHANNEL_ID must be an integer.")
 
-]; // Leave empty for dynamic generation each message
+# =========================================================
+# Bot Setup
+# =========================================================
+intents = discord.Intents.default()
+intents.guilds = True
+intents.guild_messages = True
+intents.message_content = True
+intents.members = True  # Needed to change nicknames
 
-// Optional: set true to cycle sequentially through provided NICKNAMES (only matters if list not empty)
-const SEQUENTIAL = false;
+bot = commands.Bot(command_prefix="!", intents=intents)
+active = False  # Toggled by !start / !stop
 
-let seqIndex = 0;
-const lastNicknameByUser = new Map();
-const inFlight = new Map();
+# Simple word pools for nickname generation
+ADJECTIVES = [
+    "Zesty", "Fuzzy", "Icy", "Brave", "Cosmic", "Witty", "Quirky", "Spicy", "Mellow", "Silly",
+    "Bouncy", "Glitchy", "Nebula", "Rusty", "Swift", "Snazzy", "Giddy", "Chill", "Dizzy", "Soggy"
+]
+NOUNS = [
+    "Llama", "Otter", "Falcon", "Badger", "Kraken", "Panda", "Mantis", "Cobra", "Pixel", "Comet",
+    "Raptor", "Golem", "Lynx", "Phoenix", "Dragon", "Puffin", "Beetle", "Fox", "Aardvark", "Moose"
+]
 
-// Word pools for dynamic nickname generation when NICKNAMES is empty
-const RAND_ADJ = [
-  "Flux","Neon","Nova","Quantum","Hyper","Turbo","Pixel",
-  "Zesty","Meta","Ultra","Astro","Cyber","Glitch","Lunar",
-  "Vortex","Binary","Cosmic","Proto","Omega","Solar"
-];
-const RAND_CORE = [
-  "Spark","Drift","Pulse","Shard","Shift","Core","Node","Loop",
-  "Hex","Ray","Wave","Arc","Frame","Phase","Trace","Grid","Beam"
-];
+# Track last nickname per user to reduce immediate duplicates
+last_nick = {}
 
-function generateDynamicNick() {
-  const adj = RAND_ADJ[Math.floor(Math.random() * RAND_ADJ.length)];
-  const core = RAND_CORE[Math.floor(Math.random() * RAND_CORE.length)];
-  const tail = Math.random().toString(36).slice(2, 6); // 4 chars
-  const variant = Math.floor(Math.random() * 900 + 100); // 3 digits
-  return `${adj}${core}-${tail}${variant}`.slice(0, 32);
-}
 
-function nextNickname(userId) {
-  // If list provided
-  if (NICKNAMES.length > 0) {
-    if (SEQUENTIAL) {
-      const nick = NICKNAMES[seqIndex % NICKNAMES.length];
-      seqIndex++;
-      lastNicknameByUser.set(userId, nick);
-      return nick.slice(0, 32);
-    }
-    for (let i = 0; i < 5; i++) {
-      const nick = NICKNAMES[Math.floor(Math.random() * NICKNAMES.length)];
-      if (lastNicknameByUser.get(userId) !== nick) {
-        lastNicknameByUser.set(userId, nick);
-        return nick.slice(0, 32);
-      }
-    }
-    const fallback = NICKNAMES[Math.floor(Math.random() * NICKNAMES.length)].slice(0, 32);
-    lastNicknameByUser.set(userId, fallback);
-    return fallback;
-  }
+def generate_nickname(user_id: int) -> str:
+    # Try a few times to avoid repeat
+    for _ in range(5):
+        adj = random.choice(ADJECTIVES)
+        noun = random.choice(NOUNS)
+        num = random.randint(100, 999)
+        nick = f"{adj}{noun}{num}"
+        if last_nick.get(user_id) != nick:
+            last_nick[user_id] = nick
+            return nick
+    # Fallback
+    nick = f"Nick{random.randint(0, 99999)}"
+    last_nick[user_id] = nick
+    return nick
 
-  // Dynamic mode
-  for (let i = 0; i < 5; i++) {
-    const nick = generateDynamicNick();
-    if (lastNicknameByUser.get(userId) !== nick) {
-      lastNicknameByUser.set(userId, nick);
-      return nick;
-    }
-  }
-  const fallback = generateDynamicNick();
-  lastNicknameByUser.set(userId, fallback);
-  return fallback;
-}
 
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds,
-    GatewayIntentBits.GuildMembers,
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
-  ],
-  partials: [Partials.GuildMember, Partials.User]
-});
+@bot.event
+async def on_ready():
+    print(f"Logged in as {bot.user} (ID: {bot.user.id})")
+    print(f"Watching channel {CHANNEL_ID}. Use !start there to activate.")
+    # Try to fetch the channel to verify
+    channel = bot.get_channel(CHANNEL_ID)
+    if channel is None:
+        print("Warning: Channel not found in cache yet. It will be resolved on first message.")
 
-client.once(Events.ClientReady, () => {
-  console.log(`Logged in as ${client.user.tag}`);
-  console.log(`Channel: ${CHANNEL_ID}`);
-  console.log(`Active on start: ${active}. Use !stop or !start in the channel (Manage Server required).`);
-});
 
-async function setNickname(member, newNick) {
-  const me = member.guild.members.me;
-  if (!me) return;
-  if (!me.permissions.has(PermissionsBitField.Flags.ManageNicknames)) return;
-  if (!(me.roles.highest.comparePositionTo(member.roles.highest) > 0)) return;
+def has_manage_guild(member: discord.Member) -> bool:
+    return member.guild_permissions.manage_guild
 
-  const trimmed = newNick.slice(0, 32);
-  try {
-    await member.setNickname(trimmed, "Per-message nickname change");
-  } catch {
-    // Ignore errors (permissions, rate limit, hierarchy)
-  }
-}
 
-client.on(Events.MessageCreate, async (message) => {
-  if (message.author.bot) return;
-  if (!message.guild) return;
-  if (message.channel.id !== CHANNEL_ID) return;
+@bot.command(name="start")
+async def start_cmd(ctx: commands.Context):
+    global active
+    if ctx.channel.id != CHANNEL_ID:
+        return
+    if not isinstance(ctx.author, discord.Member):
+        return
+    if not has_manage_guild(ctx.author):
+        await ctx.reply("You lack permission (Manage Server required).", mention_author=False)
+        return
+    if active:
+        await ctx.reply("Already active.", mention_author=False)
+        return
+    active = True
+    await ctx.reply("Per-message nickname changes ACTIVATED.", mention_author=False)
 
-  const content = message.content.trim().toLowerCase();
 
-  // Command: !stop
-  if (content === "!stop") {
-    if (!message.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
-      message.reply("You lack permission (Manage Server required).").catch(() => {});
-      return;
-    }
-    if (!active) {
-      message.reply("Already stopped.").catch(() => {});
-      return;
-    }
-    active = false;
-    message.reply("Nickname changing DISABLED.").catch(() => {});
-    return;
-  }
+@bot.command(name="stop")
+async def stop_cmd(ctx: commands.Context):
+    global active
+    if ctx.channel.id != CHANNEL_ID:
+        return
+    if not isinstance(ctx.author, discord.Member):
+        return
+    if not has_manage_guild(ctx.author):
+        await ctx.reply("You lack permission (Manage Server required).", mention_author=False)
+        return
+    if not active:
+        await ctx.reply("Already stopped.", mention_author=False)
+        return
+    active = False
+    await ctx.reply("Per-message nickname changes DISABLED.", mention_author=False)
 
-  // Command: !start
-  if (content === "!start") {
-    if (!message.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
-      message.reply("You lack permission (Manage Server required).").catch(() => {});
-      return;
-    }
-    if (active) {
-      message.reply("Already active.").catch(() => {});
-      return;
-    }
-    active = true;
-    message.reply("Nickname changing ENABLED.").catch(() => {});
-    return;
-  }
 
-  if (!active) return;
+@bot.event
+async def on_message(message: discord.Message):
+    # Allow commands to process first / also required for commands to work
+    await bot.process_commands(message)
 
-  const member = message.member;
-  if (!member) return;
+    if message.author.bot:
+        return
+    if message.channel.id != CHANNEL_ID:
+        return
+    if not active:
+        return
+    if not isinstance(message.author, discord.Member):
+        return
 
-  // Prevent overlapping edits if user spam messages quickly
-  if (inFlight.get(member.id)) return;
-  inFlight.set(member.id, true);
-  try {
-    const nick = nextNickname(member.id);
-    await setNickname(member, nick);
-  } finally {
-    inFlight.delete(member.id);
-  }
-});
+    member: discord.Member = message.author
 
-client.login(DISCORD_TOKEN);
+    # Check if bot can manage this member
+    if not member.guild.me:  # type: ignore
+        return
+    if not member.guild.me.guild_permissions.manage_nicknames:  # type: ignore
+        return
+    if not member.guild.me.top_role > member.top_role:  # type: ignore
+        return  # Role hierarchy prevents nickname change
 
-process.on("SIGTERM", () => {
-  console.log("Shutting down...");
-  client.destroy();
-  process.exit(0);
-});
+    new_nick = generate_nickname(member.id)
+    try:
+        await member.edit(nick=new_nick, reason="Per-message nickname change")
+    except discord.Forbidden:
+        pass  # Missing permission or hierarchy issue
+    except discord.HTTPException:
+        pass  # Rate limit or other HTTP issue ignored
+
+
+# Graceful shutdown (optional)
+async def shutdown():
+    await bot.close()
+
+
+def main():
+    try:
+        bot.run(DISCORD_TOKEN)
+    except KeyboardInterrupt:
+        print("Shutting down...")
+
+if __name__ == "__main__":
+    main()
