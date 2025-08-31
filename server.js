@@ -21,35 +21,14 @@ const lastNicknameByUser = new Map();
 // Zesty / playful nickname pool (safe / non-harassing).
 // Feel free to add more entries. Keep them within Discord guidelines.
 const NICKNAMES = [
-  "ZestyZebra",
-  "SpicySprocket",
-  "CitrusComet",
-  "PepperPixel",
-  "FizzyFalcon",
-  "LimeLightning",
-  "MangoMatrix",
-  "TangyTornado",
-  "ChiliChip",
-  "SaucySocket",
-  "SizzlingSynth",
-  "BubblyBit",
-  "ZingyZenith",
-  "TurboTangerine",
-  "CosmicCitrus",
-  "PrismaticPeach",
-  "NeonNectar",
-  "VividVolt",
-  "PepperPulse",
-  "AtomicApricot",
-  "GlitchGrapefruit",
-  "Bitterspark",
-  "ElectricLime",
-  "FusionFruit",
-  "QuantumQuince",
-  "HyperHoneydew",
-  "SonicClementine",
-  "PixelPapaya",
-  "RadiantRambutan"
+ "big cock rider",
+"dildo enjoyer",
+"cock rider",
+"pulsar bitch",
+"i bark for free",
+"dm for blowjob",
+"mongoloid",
+"im a zesty kid",
 ];
 
 // Set true if you want sequential cycling instead of random
