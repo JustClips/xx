@@ -29,6 +29,16 @@ const NICKNAMES = [
 "dm for blowjob",
 "mongoloid",
 "im a zesty kid",
+"dick enjoyer",
+"i love white liquid",
+"sucking dick for 10$",
+"real monkey",
+"monkey with big dick",
+"zesty monkey",
+"i love jerkin off",
+"dm me for free fuck",
+"reverse jerkoff 300",
+"barking cat",
 ];
 
 // Set true if you want sequential cycling instead of random
