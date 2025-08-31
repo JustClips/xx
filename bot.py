@@ -3,6 +3,8 @@ import random
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
+import aiohttp
+import json
 
 # =========================================================
 # Environment Variables
@@ -10,9 +12,14 @@ from dotenv import load_dotenv
 load_dotenv()
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 CHANNEL_ID = os.getenv("CHANNEL_ID")
+LUARMOR_API_KEY = os.getenv("LUARMOR_API_KEY")
+PROJECT_ID = os.getenv("PROJECT_ID")
 
 if not DISCORD_TOKEN or not CHANNEL_ID:
     raise SystemExit("Missing DISCORD_TOKEN or CHANNEL_ID environment variables.")
+
+if not LUARMOR_API_KEY or not PROJECT_ID:
+    raise SystemExit("Missing LUARMOR_API_KEY or PROJECT_ID environment variables.")
 
 try:
     CHANNEL_ID = int(CHANNEL_ID)
@@ -37,177 +44,44 @@ AUTHORIZED_ROLE_ID = 1405035087703183492
 # In-memory storage for user keys (use a DB in production)
 user_keys = {}
 
-# Predefined key list
-KEYS = [
-    "QUvgeRZzlAKhjHjghbSvGtfcoluRRfoL",
-    "wWbpswiGsTFfcLFxzxjkkrTLYFwUidWW",
-    "TIEGWKiEhEjRXdHqUkhyiKIAZcChdKZz",
-    "bNBDNVuVrFQdwrqKMWNohByxnYziYIkY",
-    "DlyhHTIyyDrXoAjXmtDoOnDHdlNsxPir",
-    "jirPzvvkLESISKXlqSlUslCutMaICSYN",
-    "sOTBENfqtbYEuddiYWbbVPJufuUVvxAp",
-    "heDxGEEUBMAcTHgDfZFutPKNVRXTCmJZ",
-    "bXUreDnKPuqetHKIFxXTmCnlUEkTObSw",
-    "RZmYLiPzhwWnPTrNdwXasZnFCxvGHldI",
-    "eRvzBZWZEFAqhoMPRIuPhyOtErEavUVb",
-    "KpgCWTobOvPBhTRwgVKjBaHeYpndGitp",
-    "AxQlbnLPGmULhuoZetPafiumnEmVOhxn",
-    "RZDZFfKvwyQboGmDfmoYckdDIXgACxks",
-    "sZriZsjKzXStSdfRqwWKCyCamAKJYpzX",
-    "ilTjqHYaMvLsidGxPNhhoKnLjvWNJmfD",
-    "pbGfvXIrexDxPrhMgnDkICBPxQyCVqgP",
-    "RrxMlYEGVbdPDjWsSAOdmjXiXNVMzvoz",
-    "KpjVrMrqMEQboBksrupMKkEwXMZBgahX",
-    "oaKwiekvdqfhGkajPxTUoIDEEKjbyTEN",
-    "KjwucKnVNeMECYFObDYpcxwBqDTDqSsK",
-    "dUbLMXXuNJkKKRVJTIENQaFiNlsOqxZV",
-    "XlkHTlxEFtAmqonmfuhctyKvCdgKfgNn",
-    "WFkGBkARzouQljvVAQSZPMjwhFFkFwup",
-    "CvLKcswwTUmrzcffjTzwdhMUrInodrLS",
-    "feXQqQEJETMWKwGLrHkrrhmSVTuzFDuw",
-    "tgviIUVKdRISmIuNHuSVtgWRNbsEzzUa",
-    "BPiMDxKxNvXphkuQZOegOiAIqyZDYVuZ",
-    "ugzAbdEJccFqtGZlphSvsHIjgDsxvHcY",
-    "HXpfZEVKGSStQbtVYyldLIGamRKgmCAa",
-    "dBxoVcxhCRTQHYlesOhCCpjhHxSkpDaN",
-    "XxMpCtTkXRhRjFjOGQRvxIVaZrSQvHWg",
-    "KsinEGxjTNTwISyVufElNEGyFpTWZpgq",
-    "ggIaKmmFmIcGUpleyhLRJUIKxWWTrakm",
-    "jpWhxYPoHLTIWycALFLtKzhmBBpbztBn",
-    "dZXnihomGtnDzgXDTBwqlJMfSlfoCjuL",
-    "jBHKYDLIpgdgGeyodzyZNpiaGkinXSxd",
-    "WDOMoXuxDZvNEcZqYevzrdalugrgXsWA",
-    "kMjcVsABvdofaFPyJAYXLHfetlzGJQzH",
-    "IWJNVMJeZQmArEtihksAXDXkovmmhmPH",
-    "ESUFXJrTebvHjkyCXbHTVyNbhOVgOVct",
-    "dmmkMWtnLufHeiWuwCBjQCxebfRYVdkG",
-    "xyQOzZIrTWWpuduKSBhJSoirCkkCiakz",
-    "waXfIGipAgGYyMvZccLtWhTPhPZidycm",
-    "RkYChLieIAMnFHWPAhiyZZSijcKyDywY",
-    "GIhigIBlFeJWERfXqknAhOoKrDsHsaVH",
-    "JMbtSBzeKIgnfpApkJKgyqmaJXQzvFYR",
-    "iolszOUtfmjpJUTkqgxtOQXdvPUyhCCH",
-    "uZdDHPfreKfncOTCEhqDjgyrLjqeDVTJ",
-    "tqXEDVCPfPogCrnInMLASKuGdPOcAPDL",
-    "EwmrIFObpXRJazvZKOwGRkZxHUWXUCfC",
-    "jvNQejNBmkTsjGndcfYQAduOsaHahMnJ",
-    "XifvQJQSRKqVgiNPtlQcLWJZqGdfuXIF",
-    "oWvfJufZvzZuRyoGKeXntLjsnorzcSqR",
-    "bMYVZGLpdWcDzfPMJybimJVVEPkLnpct",
-    "mYkWgKeJhYMCTZAVrxDspxCTzEwkqcUa",
-    "uHBcREETrCZWnIAXVodERKYrGJLeiRGE",
-    "BDNemopWJbpPDGJGeqkenlEzerQWlCdX",
-    "SHIAlkhsiHagVgoxYEbnEmYvpkZdToKx",
-    "UFZXmbjwPCqbTTlkfofEnXrwZLDSrXiE",
-    "BjlHDhvdxGalqURAYDWSySQmHNKFZJjx",
-    "pZPVDhvvngRVgggbrdKaTshGTktSKXCC",
-    "tGeVXzwPJNevIjELCFeUvrELhlZLSMUt",
-    "fFHrrNARJqcaPTHCRpqItjSlkmYAkYOn",
-    "eCGbElLXXKJXdqOXqtBqoIRQuMwlYcYq",
-    "BCQpZoEiBBDJGSPhuqSurnHtEFuWKHII",
-    "szLmoGmzPgwqRDiVxWYnwmAzaWmKWLrW",
-    "XdKSfEEEwXMVmqBbMftsmhYeppxwlXFX",
-    "jalAVNsVzbZGoDhOjHsaoiDURULSrkZQ",
-    "xsNeadKIBBQmMsLXnqgMdedDGHxDgTHl",
-    "jzmXZSKOpeMdGvyaeTMpaeZwrjTFxIhn",
-    "eSUWfBWEjXjSppAdNsImtGOiJjuMMLNo",
-    "YgcgjfjmEUQOYJrNosEfBvRCZsWcJuMw",
-    "ySxWQbkiJFBwdiQTwGbcHGgIGxzrRRBY",
-    "eUPyQSOTOhkRLSMUPuiBcpBkwUfnNcZA",
-    "gOuQrohzDJaHYHkFErBYBzhHcTqiomeG",
-    "cgyzgvsvEevPxKTABxUcPXKuQUrNvnOI",
-    "EwvIxnoboEaQTKhmxouAQPvNXDIEUcYI",
-    "okImhBkschjuaChpdGEqnbcBxpWMvopU",
-    "ZWhxrDrSkMeCIBYTWMVKZUcXJpNNebhG",
-    "mWMUESLxfaLkrhGOuMuhRsiBQzJcnJwn",
-    "UTgOdziYSsfHtSQbWCJfqxehrntFZnXa",
-    "RGFIrtvUwXEvdaPKkESdlMKjBoEYRyEw",
-    "yljkaUlVVdKcKHubqeAmUfehLxQkgTMw",
-    "bqKUlkREfgurVCjyMbkCSOMUGRklrONZ",
-    "atKTJiMiiTukDuBmQCAXxqUvQMUOkvvt",
-    "tGSxyiswBHlScaxYxkLvSgOEUtCrVNeZ",
-    "hpcjklkGUpkFlZhLkmQaLFGzNIwsUuGg",
-    "UKCCYhvYpNuOqwkzKQyhZVcaPkKPCboe",
-    "kYSHKNsbHQLpHBFIYlOBzoKlKwKsSgNW",
-    "XFSYQyysaLAFvtvAeXiWYlUIijUBnaKu",
-    "EHQJfgqOxToTtkznLOBYFOGxIEYOuyas",
-    "eTSOauhzDaFQaTvbqODuFMcQlsHCvtwo",
-    "sLgfIJSJHNGpaAJIyrLQbLXfnGGtqcAa",
-    "HcREEIRcBDopkauBwuOOGtgLphSDCCIk",
-    "gVWLSmGyuNPRCTIqORdhwSWUCjCWxWJT",
-    "vOSAWwPSPPPQXZeOCyRKJUPMwfbIReZk",
-    "czQMBdxZWlOaXEUjkOXHcLPoZcDUHyiV",
-    "OfngloCvrxywRFkUjMKyegfujfVsdsTh",
-    "QBjvLhYwexsqVZkFCpEjdkIzgTpJamrN",
-    "RpinLWTQUbuSIJrUKUOQTvAZHOIaFBds",
-    "qDckKEMnPPJmlyssodJHQYzYZhXABjMt",
-    "xfDYwQDdgqubRRsMkOvSuIOAVwJciWNP",
-    "BeAJraGBuOpyymRtlsCLUcWPWsxbvDYk",
-    "RausdeCmkQdxsCRyJmdPPIlJPUCGFcZd",
-    "bMjunATwpYIvuKCqnIkGqKtRKBuwXioq",
-    "FqvPttCMWPXvWBUNBOvklqdKmIiAFByk",
-    "KtUujDdjuMEQLBAEsbqYXBoagnMtXIyc",
-    "vksskhbLxFVsCrWBJwrENrStWZKOeLzA",
-    "GgrviATeBRcQzyrYMNzOIUEJUsfgRSSJ",
-    "VwpxGTIHjAlalEvVTQQfHxmoFdITjLql",
-    "yGMOZrFBmIkNzOlpXXjUwOPJUVpqmJWN",
-    "HgQdlrDAhalkAdteTbIqQzPzZHdACTjg",
-    "ZVTFkcWpIigjyrTAjKilkZyYqipYWXwA",
-    "SoErTTMGNxkWLXtCpQgRHjubeKFMlzjd",
-    "UaOaYdoQyRMNNLcgqceyOTmUoLpaZCIm",
-    "WawEuGcXCrzDhRALRrLICkWgynsmAaRt",
-    "ELGKhDNISQDNdXzTbSQcRqsNABKmbMGa",
-    "RctFBjEDvYXvYGhQvrSLQtNkIbwyaHCL",
-    "bPsTunvWFnYffAXczAfTRWLSGImJIQRq",
-    "DaIDnmZbhQRrkHWBRsIBkchZeZZkOnQl",
-    "VuJgEfQhfuCHcfZaHafbgcITcCNfuppN",
-    "qsaUMWcLYUiYfQKRNkajRtsjxXXTGGez",
-    "TTObxrGuJoeXgmxWVpOJyTpKSGqviWMu",
-    "uHWplqyosYSbFcdFXJmiJKFErsbZZmlL",
-    "udjoRolGdqeZZmFrsZnWxJCQTZTBirxm",
-    "EyGhIDPsbLOeiwQcGZyrnTuGMbonLUPy",
-    "wfTgWkvFlfPslaiLnZicVPazTjypxdKk",
-    "xKpMxNxTSydGSThGQpdDMIpmQszwxZff",
-    "nESXUxINVOKdbpVVHjzNxEfgQTXpkGhx",
-    "ErniGwArsOvlZGTBtasILaFxFlRONeMf",
-    "dgasiQkImDccWljhKcBNhCuyJRYjVNRS",
-    "NlPYKzmWtLYRtTOIGuKURzVdRsJSYSGv",
-    "xgGBYmWwEqpsbtIDqSiklieCyXAuKNOb",
-    "SqgWlJdgxUHrQofBvFKlAcZgyUKkqUiy",
-    "dtwkIgRJNUwJbPIVlhkPPHHttJnWYGOo",
-    "tsNygdioPseqmftMVyVZioRVZspZvuUu",
-    "jYSwTxKLaCCkCqVXdbDEYUObYTMIbaTN",
-    "eoJYmDAUWMBgmNaEjJTGkwzoPYUcrSOX",
-    "ZaCwFwbbRSTmvqIqNtFjFncAAOOiDQbb",
-    "lBYmEGMRdufSTnmmcYJPBUYtWolWWWBu",
-    "QjDstGhXTJGLPYQWkqBgZACdloUzhTsF",
-    "vgAODhbcKGthXJKffmrvwlVnSZkaLsUM",
-    "IoJfhrpFvHhEIwIJPhSccSExAUrCuVfu",
-    "hCkKFSiDYWjCtTIIHELJAxRToQCFkZuc",
-    "bJnsRXOBYdVRSCfNgEgPhMlfsLcnsTeB",
-    "abeLYGYXBYNhcNELPahuQtoEQeUqKcjv",
-    "kBDdrgVpPMZbonHLjqSnmsSITHRVfYOl",
-    "lTFXBjIikbIxKwfoVRCAWTsVHPEDEJRc",
-    "BUbamkbtaHZGKOXhDYdOEdxOEzBeAZNp",
-    "deTnXHbRerXMVmxMdubpTUTCmFsClaFA"
-]
-
 # =========================================================
-# Helper Functions
+# Luarmor API Functions
 # =========================================================
 
-def generate_key(user_id: int) -> str:
-    if user_id in user_keys:
-        return user_keys[user_id]
-    key = random.choice(KEYS)
-    user_keys[user_id] = key
-    return key
+async def create_user_key(discord_id: str) -> str:
+    """Create a new user key via Luarmor API"""
+    url = f"https://api.luarmor.net/v3/projects/{PROJECT_ID}/users"
+    headers = {
+        "Authorization": LUARMOR_API_KEY,
+        "Content-Type": "application/json"
+    }
+    data = {
+        "discord_id": discord_id
+    }
+    
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, headers=headers, json=data) as response:
+            if response.status == 200:
+                result = await response.json()
+                return result.get("user_key", "")
+            else:
+                print(f"API Error: {response.status} - {await response.text()}")
+                return ""
 
-def reset_key(user_id: int) -> bool:
-    if user_id in user_keys:
-        del user_keys[user_id]
-        return True
-    return False
+async def reset_user_hwid(user_key: str) -> bool:
+    """Reset user HWID via Luarmor API"""
+    url = f"https://api.luarmor.net/v3/projects/{PROJECT_ID}/users/resethwid"
+    headers = {
+        "Authorization": LUARMOR_API_KEY,
+        "Content-Type": "application/json"
+    }
+    data = {
+        "user_key": user_key
+    }
+    
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url, headers=headers, json=data) as response:
+            return response.status == 200
 
 # =========================================================
 # Bot Events
@@ -224,51 +98,139 @@ async def on_ready():
         print(f"Failed to sync commands: {e}")
 
 # =========================================================
+# Views and Components
+# =========================================================
+
+class PremiumPanelView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="Generate Key", style=discord.ButtonStyle.success, custom_id="generate_key")
+    async def generate_key(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Check if user has authorized role
+        role_ids = [role.id for role in getattr(interaction.user, 'roles', [])]
+        if AUTHORIZED_ROLE_ID not in role_ids:
+            await interaction.response.send_message(
+                "❌ You do not have permission to use this panel.", ephemeral=True
+            )
+            return
+
+        # Check if user already has a key
+        if interaction.user.id in user_keys:
+            await interaction.response.send_message(
+                "⚠️ You already have a generated key. Use the 'Get Script' button to retrieve it.", 
+                ephemeral=True
+            )
+            return
+
+        # Generate new key via Luarmor API
+        user_key = await create_user_key(str(interaction.user.id))
+        if not user_key:
+            await interaction.response.send_message(
+                "❌ Failed to generate key. Please try again later.", 
+                ephemeral=True
+            )
+            return
+
+        # Store key in memory
+        user_keys[interaction.user.id] = user_key
+        
+        # Disable button for this user
+        button.disabled = True
+        await interaction.response.edit_message(view=self)
+        
+        await interaction.followup.send(
+            f"✅ Key generated successfully! Use the 'Get Script' button to retrieve your script.",
+            ephemeral=True
+        )
+
+    @discord.ui.button(label="Get Script", style=discord.ButtonStyle.primary, custom_id="get_script")
+    async def get_script(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Check if user has authorized role
+        role_ids = [role.id for role in getattr(interaction.user, 'roles', [])]
+        if AUTHORIZED_ROLE_ID not in role_ids:
+            await interaction.response.send_message(
+                "❌ You do not have permission to use this panel.", ephemeral=True
+            )
+            return
+
+        # Check if user has a key
+        if interaction.user.id not in user_keys:
+            await interaction.response.send_message(
+                "❌ You don't have a generated key yet. Use the 'Generate Key' button first.", 
+                ephemeral=True
+            )
+            return
+
+        user_key = user_keys[interaction.user.id]
+        script = f'script_key="{user_key}";\nloadstring(game:HttpGet("https://api.luarmor.net/files/v3/loaders/f40a8b8e2d4ea7ce9d8b28eff8c2676d.lua"))()'
+        
+        await interaction.response.send_message(
+            f"```lua\n{script}\n```",
+            ephemeral=True
+        )
+
+    @discord.ui.button(label="Reset HWID", style=discord.ButtonStyle.danger, custom_id="reset_hwid")
+    async def reset_hwid(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Check if user has authorized role
+        role_ids = [role.id for role in getattr(interaction.user, 'roles', [])]
+        if AUTHORIZED_ROLE_ID not in role_ids:
+            await interaction.response.send_message(
+                "❌ You do not have permission to use this panel.", ephemeral=True
+            )
+            return
+
+        # Check if user has a key
+        if interaction.user.id not in user_keys:
+            await interaction.response.send_message(
+                "❌ You don't have a generated key yet. Use the 'Generate Key' button first.", 
+                ephemeral=True
+            )
+            return
+
+        user_key = user_keys[interaction.user.id]
+        success = await reset_user_hwid(user_key)
+        
+        if success:
+            await interaction.response.send_message(
+                "✅ HWID reset successfully!", 
+                ephemeral=True
+            )
+        else:
+            await interaction.response.send_message(
+                "❌ Failed to reset HWID. Please try again later.", 
+                ephemeral=True
+            )
+
+# =========================================================
 # Slash Commands
 # =========================================================
 
-@bot.tree.command(name="generatekey", description="Generate a key linked to your user ID.")
-async def generate_key_command(interaction: discord.Interaction):
-    user = interaction.user
-    role_ids = [role.id for role in getattr(user, 'roles', [])]
-    if AUTHORIZED_ROLE_ID not in role_ids:
+@bot.tree.command(name="sendpanel", description="Send the premium panel to the channel")
+async def send_panel(interaction: discord.Interaction):
+    if interaction.user.id != interaction.guild.owner_id and not interaction.user.guild_permissions.administrator:
         await interaction.response.send_message(
-            "❌ You do not have permission to use this command.", ephemeral=True
+            "❌ Only server administrators can use this command.", 
+            ephemeral=True
         )
         return
 
-    key = generate_key(user.id)
-    await interaction.response.send_message(
-        f"🔑 Your key is: `{key}`\nIt is now linked to your account.",
-        ephemeral=True
+    embed = discord.Embed(
+        title="Eps1llon Hub Premium Panel",
+        description="Welcome to the Eps1llon Hub Premium Panel!\n\nUse the buttons below to manage your premium access.",
+        color=discord.Color.gold()
     )
-
-# Reset Key Button
-class ResetKeyView(discord.ui.View):
-    def __init__(self, user_id: int):
-        super().__init__(timeout=60)
-        self.user_id = user_id
-
-    @discord.ui.button(label="Reset Key", style=discord.ButtonStyle.danger)
-    async def reset_key_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.id != self.user_id:
-            await interaction.response.send_message("🚫 You cannot reset someone else's key.", ephemeral=True)
-            return
-
-        success = reset_key(self.user_id)
-        if success:
-            await interaction.response.send_message("✅ Your key has been reset.", ephemeral=True)
-        else:
-            await interaction.response.send_message("⚠️ You don't have a key to reset.", ephemeral=True)
-
-@bot.tree.command(name="resetkey", description="Reset your generated key.")
-async def reset_key_command(interaction: discord.Interaction):
-    view = ResetKeyView(interaction.user.id)
-    await interaction.response.send_message(
-        "Click the button below to reset your key:",
-        view=view,
-        ephemeral=True
+    embed.add_field(name="Instructions", value=
+        "1. Click **Generate Key** to create your premium key\n"
+        "2. Click **Get Script** to retrieve your loader script\n"
+        "3. Click **Reset HWID** if you need to reset your hardware ID", 
+        inline=False
     )
+    embed.set_footer(text="Eps1llon Hub Premium")
+
+    view = PremiumPanelView()
+    await interaction.channel.send(embed=embed, view=view)
+    await interaction.response.send_message("✅ Premium panel sent!", ephemeral=True)
 
 # =========================================================
 # Main
