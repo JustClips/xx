@@ -39,6 +39,9 @@ const NICKNAMES = [
 "dm me for free fuck",
 "reverse jerkoff 300",
 "barking cat",
+"6-7?",
+"i will crack yo nuts like a nutcracker",
+
 ];
 
 // Set true if you want sequential cycling instead of random
