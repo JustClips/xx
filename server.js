@@ -8,44 +8,73 @@ import {
 } from "discord.js";
 
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
-
-// Hard-coded channel ID (no env var needed for it)
-const CHANNEL_ID = "1410395105965375600";
+const CHANNEL_ID = "1410395105965375600"; // Fixed target channel
 
 if (!DISCORD_TOKEN) {
   console.error("Missing DISCORD_TOKEN environment variable.");
   process.exit(1);
 }
 
-// Bot active flag toggled by !start / !stop inside the target channel
-let active = false;
+let active = false; // toggled by !start / !stop
+const lastNicknameByUser = new Map();
 
-// Track last nickname per user (to reduce immediate duplicates)
-const lastNick = new Map();
-
-// Word lists for nickname generation
-const ADJECTIVES = [
-  "Zesty","Fuzzy","Icy","Brave","Cosmic","Witty","Quirky","Spicy","Mellow","Silly",
-  "Bouncy","Glitchy","Nebula","Rusty","Swift","Snazzy","Giddy","Chill","Dizzy","Soggy"
+// Zesty / playful nickname pool (safe / non-harassing).
+// Feel free to add more entries. Keep them within Discord guidelines.
+const NICKNAMES = [
+  "ZestyZebra",
+  "SpicySprocket",
+  "CitrusComet",
+  "PepperPixel",
+  "FizzyFalcon",
+  "LimeLightning",
+  "MangoMatrix",
+  "TangyTornado",
+  "ChiliChip",
+  "SaucySocket",
+  "SizzlingSynth",
+  "BubblyBit",
+  "ZingyZenith",
+  "TurboTangerine",
+  "CosmicCitrus",
+  "PrismaticPeach",
+  "NeonNectar",
+  "VividVolt",
+  "PepperPulse",
+  "AtomicApricot",
+  "GlitchGrapefruit",
+  "Bitterspark",
+  "ElectricLime",
+  "FusionFruit",
+  "QuantumQuince",
+  "HyperHoneydew",
+  "SonicClementine",
+  "PixelPapaya",
+  "RadiantRambutan"
 ];
-const NOUNS = [
-  "Llama","Otter","Falcon","Badger","Kraken","Panda","Mantis","Cobra","Pixel","Comet",
-  "Raptor","Golem","Lynx","Phoenix","Dragon","Puffin","Beetle","Fox","Aardvark","Moose"
-];
 
-function generateNickname(userId) {
+// Set true if you want sequential cycling instead of random
+const SEQUENTIAL = false;
+let seqIndex = 0;
+
+function nextNickname(userId) {
+  if (!NICKNAMES.length) return "Nickname";
+  if (SEQUENTIAL) {
+    const nick = NICKNAMES[seqIndex % NICKNAMES.length];
+    seqIndex++;
+    lastNicknameByUser.set(userId, nick);
+    return nick;
+  }
+  // Random with small loop to avoid immediate duplicate for that user
   for (let i = 0; i < 5; i++) {
-    const adj = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)];
-    const noun = NOUNS[Math.floor(Math.random() * NOUNS.length)];
-    const num = Math.floor(100 + Math.random() * 900);
-    const nick = `${adj}${noun}${num}`;
-    if (lastNick.get(userId) !== nick) {
-      lastNick.set(userId, nick);
+    const nick = NICKNAMES[Math.floor(Math.random() * NICKNAMES.length)];
+    if (lastNicknameByUser.get(userId) !== nick) {
+      lastNicknameByUser.set(userId, nick);
       return nick;
     }
   }
-  const fallback = `Nick${Math.floor(Math.random() * 100000)}`;
-  lastNick.set(userId, fallback);
+  // Fallback (just pick one)
+  const fallback = NICKNAMES[Math.floor(Math.random() * NICKNAMES.length)];
+  lastNicknameByUser.set(userId, fallback);
   return fallback;
 }
 
@@ -61,18 +90,15 @@ const client = new Client({
 
 client.once(Events.ClientReady, () => {
   console.log(`Logged in as ${client.user.tag}`);
-  console.log(`Target channel: ${CHANNEL_ID}`);
-  console.log("Type !start in that channel (Manage Server permission required) to activate.");
+  console.log(`Watching channel ${CHANNEL_ID}. Type !start there (Manage Server required) to enable.`);
 });
 
 client.on(Events.MessageCreate, async (message) => {
-  // Commands and nickname changes only in the specified channel
   if (message.channel.id !== CHANNEL_ID) return;
   if (message.author.bot) return;
 
   const content = message.content.trim().toLowerCase();
 
-  // Handle !start command
   if (content === "!start") {
     if (!message.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
       message.reply("You lack permission (Manage Server required).").catch(() => {});
@@ -83,11 +109,10 @@ client.on(Events.MessageCreate, async (message) => {
       return;
     }
     active = true;
-    message.reply("Per-message nickname changing ACTIVATED.").catch(() => {});
+    message.reply("Per-message nickname changing ACTIVATED (zesty list).").catch(() => {});
     return;
   }
 
-  // Handle !stop command
   if (content === "!stop") {
     if (!message.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
       message.reply("You lack permission (Manage Server required).").catch(() => {});
@@ -104,26 +129,24 @@ client.on(Events.MessageCreate, async (message) => {
 
   if (!active) return;
 
-  // Change this author's nickname every message while active
   const member = message.member;
   if (!member) return;
 
   const me = message.guild.members.me;
   if (!me) return;
   if (!me.permissions.has(PermissionsBitField.Flags.ManageNicknames)) return;
-  if (!(me.roles.highest.comparePositionTo(member.roles.highest) > 0)) return; // role hierarchy check
+  if (!(me.roles.highest.comparePositionTo(member.roles.highest) > 0)) return;
 
-  const newNick = generateNickname(member.id);
+  const newNick = nextNickname(member.id);
   try {
-    await member.setNickname(newNick, "Per-message nickname change");
-  } catch (err) {
-    // Ignore (no permission / rate limit / hierarchy)
+    await member.setNickname(newNick, "Per-message nickname change (zesty list)");
+  } catch {
+    // Ignore errors (permissions / rate limit / hierarchy)
   }
 });
 
 client.login(DISCORD_TOKEN);
 
-// Graceful shutdown
 process.on("SIGTERM", () => {
   console.log("Shutting down...");
   client.destroy();
