@@ -2,15 +2,16 @@ import os
 import sys
 import traceback
 import logging
-from typing import Optional, List
+from typing import Optional, List, Tuple
 import discord
+from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
 import aiohttp
 
-# =========================================================
+# ---------------------------------------------------------
 # Logging
-# =========================================================
+# ---------------------------------------------------------
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -18,20 +19,20 @@ logging.basicConfig(
 )
 log = logging.getLogger("eps1llon-bot")
 
-# =========================================================
-# MySQL Connector Import
-# =========================================================
+# ---------------------------------------------------------
+# MySQL Connector
+# ---------------------------------------------------------
 try:
     import mysql.connector
     from mysql.connector import Error, pooling
     MYSQL_CONNECTOR_AVAILABLE = True
 except ImportError:
     MYSQL_CONNECTOR_AVAILABLE = False
-    log.warning("mysql-connector-python NOT installed. Using in-memory fallback.")
+    log.warning("mysql-connector-python not installed; using in-memory fallback (NOT persistent).")
 
-# =========================================================
+# ---------------------------------------------------------
 # Environment Variables
-# =========================================================
+# ---------------------------------------------------------
 load_dotenv()
 
 DISCORD_TOKEN   = os.getenv("DISCORD_TOKEN")
@@ -47,184 +48,26 @@ DB_PORT = os.getenv("MYSQLPORT", "3306")
 
 if not DISCORD_TOKEN or not CHANNEL_ID:
     raise SystemExit("Missing DISCORD_TOKEN or CHANNEL_ID.")
-if not LUARMOR_API_KEY or not PROJECT_ID:
-    log.warning("Missing LUARMOR_API_KEY or PROJECT_ID (Luarmor actions may fail).")
-
 try:
     CHANNEL_ID = int(CHANNEL_ID)
 except ValueError:
     raise SystemExit("CHANNEL_ID must be an integer.")
 
-# =========================================================
-# STATIC KEY POOL (SEED LIST)
-# =========================================================
-# These are the unused keys you provided. They will be inserted into the DB (available_keys table)
-# ONLY if the table is empty on startup. After first seed, REMOVE or COMMENT OUT this list for safety.
-KEYS_SEED = [
-"QUvgeRZzlAKhjHjghbSvGtfcoluRRfoL",
-"wWbpswiGsTFfcLFxzxjkkrTLYFwUidWW",
-"TIEGWKiEhEjRXdHqUkhyiKIAZcChdKZz",
-"bNBDNVuVrFQdwrqKMWNohByxnYziYIkY",
-"DlyhHTIyyDrXoAjXmtDoOnDHdlNsxPir",
-"jirPzvvkLESISKXlqSlUslCutMaICSYN",
-"sOTBENfqtbYEuddiYWbbVPJufuUVvxAp",
-"heDxGEEUBMAcTHgDfZFutPKNVRXTCmJZ",
-"bXUreDnKPuqetHKIFxXTmCnlUEkTObSw",
-"RZmYLiPzhwWnPTrNdwXasZnFCxvGHldI",
-"eRvzBZWZEFAqhoMPRIuPhyOtErEavUVb",
-"KpgCWTobOvPBhTRwgVKjBaHeYpndGitp",
-"AxQlbnLPGmULhuoZetPafiumnEmVOhxn",
-"RZDZFfKvwyQboGmDfmoYckdDIXgACxks",
-"sZriZsjKzXStSdfRqwWKCyCamAKJYpzX",
-"ilTjqHYaMvLsidGxPNhhoKnLjvWNJmfD",
-"pbGfvXIrexDxPrhMgnDkICBPxQyCVqgP",
-"RrxMlYEGVbdPDjWsSAOdmjXiXNVMzvoz",
-"KpjVrMrqMEQboBksrupMKkEwXMZBgahX",
-"oaKwiekvdqfhGkajPxTUoIDEEKjbyTEN",
-"KjwucKnVNeMECYFObDYpcxwBqDTDqSsK",
-"dUbLMXXuNJkKKRVJTIENQaFiNlsOqxZV",
-"XlkHTlxEFtAmqonmfuhctyKvCdgKfgNn",
-"WFkGBkARzouQljvVAQSZPMjwhFFkFwup",
-"CvLKcswwTUmrzcffjTzwdhMUrInodrLS",
-"feXQqQEJETMWKwGLrHkrrhmSVTuzFDuw",
-"tgviIUVKdRISmIuNHuSVtgWRNbsEzzUa",
-"BPiMDxKxNvXphkuQZOegOiAIqyZDYVuZ",
-"ugzAbdEJccFqtGZlphSvsHIjgDsxvHcY",
-"HXpfZEVKGSStQbtVYyldLIGamRKgmCAa",
-"dBxoVcxhCRTQHYlesOhCCpjhHxSkpDaN",
-"XxMpCtTkXRhRjFjOGQRvxIVaZrSQvHWg",
-"KsinEGxjTNTwISyVufElNEGyFpTWZpgq",
-"ggIaKmmFmIcGUpleyhLRJUIKxWWTrakm",
-"jpWhxYPoHLTIWycALFLtKzhmBBpbztBn",
-"dZXnihomGtnDzgXDTBwqlJMfSlfoCjuL",
-"jBHKYDLIpgdgGeyodzyZNpiaGkinXSxd",
-"WDOMoXuxDZvNEcZqYevzrdalugrgXsWA",
-"kMjcVsABvdofaFPyJAYXLHfetlzGJQzH",
-"IWJNVMJeZQmArEtihksAXDXkovmmhmPH",
-"ESUFXJrTebvHjkyCXbHTVyNbhOVgOVct",
-"dmmkMWtnLufHeiWuwCBjQCxebfRYVdkG",
-"xyQOzZIrTWWpuduKSBhJSoirCkkCiakz",
-"waXfIGipAgGYyMvZccLtWhTPhPZidycm",
-"RkYChLieIAMnFHWPAhiyZZSijcKyDywY",
-"GIhigIBlFeJWERfXqknAhOoKrDsHsaVH",
-"JMbtSBzeKIgnfpApkJKgyqmaJXQzvFYR",
-"iolszOUtfmjpJUTkqgxtOQXdvPUyhCCH",
-"uZdDHPfreKfncOTCEhqDjgyrLjqeDVTJ",
-"tqXEDVCPfPogCrnInMLASKuGdPOcAPDL",
-"EwmrIFObpXRJazvZKOwGRkZxHUWXUCfC",
-"jvNQejNBmkTsjGndcfYQAduOsaHahMnJ",
-"XifvQJQSRKqVgiNPtlQcLWJZqGdfuXIF",
-"oWvfJufZvzZuRyoGKeXntLjsnorzcSqR",
-"bMYVZGLpdWcDzfPMJybimJVVEPkLnpct",
-"mYkWgKeJhYMCTZAVrxDspxCTzEwkqcUa",
-"uHBcREETrCZWnIAXVodERKYrGJLeiRGE",
-"BDNemopWJbpPDGJGeqkenlEzerQWlCdX",
-"SHIAlkhsiHagVgoxYEbnEmYvpkZdToKx",
-"UFZXmbjwPCqbTTlkfofEnXrwZLDSrXiE",
-"BjlHDhvdxGalqURAYDWSySQmHNKFZJjx",
-"pZPVDhvvngRVgggbrdKaTshGTktSKXCC",
-"tGeVXzwPJNevIjELCFeUvrELhlZLSMUt",
-"fFHrrNARJqcaPTHCRpqItjSlkmYAkYOn",
-"eCGbElLXXKJXdqOXqtBqoIRQuMwlYcYq",
-"BCQpZoEiBBDJGSPhuqSurnHtEFuWKHII",
-"szLmoGmzPgwqRDiVxWYnwmAzaWmKWLrW",
-"XdKSfEEEwXMVmqBbMftsmhYeppxwlXFX",
-"jalAVNsVzbZGoDhOjHsaoiDURULSrkZQ",
-"xsNeadKIBBQmMsLXnqgMdedDGHxDgTHl",
-"jzmXZSKOpeMdGvyaeTMpaeZwrjTFxIhn",
-"eSUWfBWEjXjSppAdNsImtGOiJjuMMLNo",
-"YgcgjfjmEUQOYJrNosEfBvRCZsWcJuMw",
-"ySxWQbkiJFBwdiQTwGbcHGgIGxzrRRBY",
-"eUPyQSOTOhkRLSMUPuiBcpBkwUfnNcZA",
-"gOuQrohzDJaHYHkFErBYBzhHcTqiomeG",
-"cgyzgvsvEevPxKTABxUcPXKuQUrNvnOI",
-"EwvIxnoboEaQTKhmxouAQPvNXDIEUcYI",
-"okImhBkschjuaChpdGEqnbcBxpWMvopU",
-"ZWhxrDrSkMeCIBYTWMVKZUcXJpNNebhG",
-"mWMUESLxfaLkrhGOuMuhRsiBQzJcnJwn",
-"UTgOdziYSsfHtSQbWCJfqxehrntFZnXa",
-"RGFIrtvUwXEvdaPKkESdlMKjBoEYRyEw",
-"yljkaUlVVdKcKHubqeAmUfehLxQkgTMw",
-"bqKUlkREfgurVCjyMbkCSOMUGRklrONZ",
-"atKTJiMiiTukDuBmQCAXxqUvQMUOkvvt",
-"tGSxyiswBHlScaxYxkLvSgOEUtCrVNeZ",
-"hpcjklkGUpkFlZhLkmQaLFGzNIwsUuGg",
-"UKCCYhvYpNuOqwkzKQyhZVcaPkKPCboe",
-"kYSHKNsbHQLpHBFIYlOBzoKlKwKsSgNW",
-"XFSYQyysaLAFvtvAeXiWYlUIijUBnaKu",
-"EHQJfgqOxToTtkznLOBYFOGxIEYOuyas",
-"eTSOauhzDaFQaTvbqODuFMcQlsHCvtwo",
-"sLgfIJSJHNGpaAJIyrLQbLXfnGGtqcAa",
-"HcREEIRcBDopkauBwuOOGtgLphSDCCIk",
-"gVWLSmGyuNPRCTIqORdhwSWUCjCWxWJT",
-"vOSAWwPSPPPQXZeOCyRKJUPMwfbIReZk",
-"czQMBdxZWlOaXEUjkOXHcLPoZcDUHyiV",
-"OfngloCvrxywRFkUjMKyegfujfVsdsTh",
-"QBjvLhYwexsqVZkFCpEjdkIzgTpJamrN",
-"RpinLWTQUbuSIJrUKUOQTvAZHOIaFBds",
-"qDckKEMnPPJmlyssodJHQYzYZhXABjMt",
-"xfDYwQDdgqubRRsMkOvSuIOAVwJciWNP",
-"BeAJraGBuOpyymRtlsCLUcWPWsxbvDYk",
-"RausdeCmkQdxsCRyJmdPPIlJPUCGFcZd",
-"bMjunATwpYIvuKCqnIkGqKtRKBuwXioq",
-"FqvPttCMWPXvWBUNBOvklqdKmIiAFByk",
-"KtUujDdjuMEQLBAEsbqYXBoagnMtXIyc",
-"vksskhbLxFVsCrWBJwrENrStWZKOeLzA",
-"GgrviATeBRcQzyrYMNzOIUEJUsfgRSSJ",
-"VwpxGTIHjAlalEvVTQQfHxmoFdITjLql",
-"yGMOZrFBmIkNzOlpXXjUwOPJUVpqmJWN",
-"HgQdlrDAhalkAdteTbIqQzPzZHdACTjg",
-"ZVTFkcWpIigjyrTAjKilkZyYqipYWXwA",
-"SoErTTMGNxkWLXtCpQgRHjubeKFMlzjd",
-"UaOaYdoQyRMNNLcgqceyOTmUoLpaZCIm",
-"WawEuGcXCrzDhRALRrLICkWgynsmAaRt",
-"ELGKhDNISQDNdXzTbSQcRqsNABKmbMGa",
-"RctFBjEDvYXvYGhQvrSLQtNkIbwyaHCL",
-"bPsTunvWFnYffAXczAfTRWLSGImJIQRq",
-"DaIDnmZbhQRrkHWBRsIBkchZeZZkOnQl",
-"VuJgEfQhfuCHcfZaHafbgcITcCNfuppN",
-"qsaUMWcLYUiYfQKRNkajRtsjxXXTGGez",
-"TTObxrGuJoeXgmxWVpOJyTpKSGqviWMu",
-"uHWplqyosYSbFcdFXJmiJKFErsbZZmlL",
-"udjoRolGdqeZZmFrsZnWxJCQTZTBirxm",
-"EyGhIDPsbLOeiwQcGZyrnTuGMbonLUPy",
-"wfTgWkvFlfPslaiLnZicVPazTjypxdKk",
-"xKpMxNxTSydGSThGQpdDMIpmQszwxZff",
-"nESXUxINVOKdbpVVHjzNxEfgQTXpkGhx",
-"ErniGwArsOvlZGTBtasILaFxFlRONeMf",
-"dgasiQkImDccWljhKcBNhCuyJRYjVNRS",
-"NlPYKzmWtLYRtTOIGuKURzVdRsJSYSGv",
-"xgGBYmWwEqpsbtIDqSiklieCyXAuKNOb",
-"SqgWlJdgxUHrQofBvFKlAcZgyUKkqUiy",
-"dtwkIgRJNUwJbPIVlhkPPHHttJnWYGOo",
-"tsNygdioPseqmftMVyVZioRVZspZvuUu",
-"jYSwTxKLaCCkCqVXdbDEYUObYTMIbaTN",
-"eoJYmDAUWMBgmNaEjJTGkwzoPYUcrSOX",
-"ZaCwFwbbRSTmvqIqNtFjFncAAOOiDQbb",
-"lBYmEGMRdufSTnmmcYJPBUYtWolWWWBu",
-"QjDstGhXTJGLPYQWkqBgZACdloUzhTsF",
-"vgAODhbcKGthXJKffmrvwlVnSZkaLsUM",
-"IoJfhrpFvHhEIwIJPhSccSExAUrCuVfu",
-"hCkKFSiDYWjCtTIIHELJAxRToQCFkZuc",
-"bJnsRXOBYdVRSCfNgEgPhMlfsLcnsTeB",
-"abeLYGYXBYNhcNELPahuQtoEQeUqKcjv",
-"kBDdrgVpPMZbonHLjqSnmsSITHRVfYOl",
-"lTFXBjIikbIxKwfoVRCAWTsVHPEDEJRc",
-"BUbamkbtaHZGKOXhDYdOEdxOEzBeAZNp",
-"deTnXHbRerXMVmxMdubpTUTCmFsClaFA"
-]
+# Luarmor creds optional but required for HWID reset
+if not LUARMOR_API_KEY or not PROJECT_ID:
+    log.warning("Luarmor API credentials missing. HWID reset will fail.")
 
-# =========================================================
-# In-memory fallback structures
-# =========================================================
-user_keys_memory = {}          # discord_id -> key
-user_reset_counts = {}         # discord_id -> int
-available_keys_memory = KEYS_SEED.copy()
-assigned_keys_memory = set()
+# ---------------------------------------------------------
+# In-memory fallback structures (only if MySQL not available)
+# ---------------------------------------------------------
+memory_available_keys = []          # list of unassigned keys
+memory_assigned = {}                # discord_id -> key
+memory_key_to_user = {}             # key -> discord_id
+memory_user_reset_counts = {}       # discord_id -> int
 
-# =========================================================
+# ---------------------------------------------------------
 # Storage Manager
-# =========================================================
+# ---------------------------------------------------------
 class StorageManager:
     def __init__(self):
         self.using_mysql = (
@@ -236,7 +79,7 @@ class StorageManager:
         if self.using_mysql:
             try:
                 self.pool = pooling.MySQLConnectionPool(
-                    pool_name="eps_pool",
+                    pool_name="main_pool",
                     pool_size=5,
                     host=DB_HOST,
                     user=DB_USER,
@@ -244,35 +87,51 @@ class StorageManager:
                     database=DB_NAME,
                     port=int(DB_PORT),
                     autocommit=True,
-                    connection_timeout=10,
+                    connection_timeout=10
                 )
-                log.info("MySQL pool created.")
+                log.info("MySQL connection pool created.")
                 self.create_tables()
-                self.seed_available_keys(KEYS_SEED)
             except Error as e:
-                log.error(f"MySQL pool init failed: {e}")
+                log.error(f"MySQL pool creation failed: {e}")
                 self.using_mysql = False
         else:
             if not MYSQL_CONNECTOR_AVAILABLE:
-                log.info("MySQL connector missing; using memory.")
+                log.info("MySQL connector not installed; using memory mode.")
             else:
-                log.info("MySQL env vars incomplete; using memory.")
+                log.info("MySQL environment variables incomplete; using memory mode.")
 
+    # ------------- DB helpers -------------
     def get_connection(self):
         if not self.using_mysql or not self.pool:
             return None
         try:
             return self.pool.get_connection()
         except Error as e:
-            log.error(f"Pool get_connection error: {e}")
+            log.error(f"Error getting connection: {e}")
             return None
 
     def create_tables(self):
+        """
+        available_keys: all keys; if assigned_to is NULL -> unused
+        user_keys: record of assigned keys per discord_id (1:1), reset counters
+        """
         conn = self.get_connection()
         if not conn:
             return
         try:
             cur = conn.cursor()
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS available_keys (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    license_key VARCHAR(64) UNIQUE NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    assigned_to BIGINT NULL,
+                    assigned_tag VARCHAR(100) NULL,
+                    assigned_at TIMESTAMP NULL,
+                    INDEX idx_license_key (license_key),
+                    INDEX idx_assigned_to (assigned_to)
+                )
+            """)
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS user_keys (
                     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -285,65 +144,23 @@ class StorageManager:
                     INDEX idx_user_key (user_key)
                 )
             """)
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS available_keys (
-                    id INT AUTO_INCREMENT PRIMARY KEY,
-                    license_key VARCHAR(64) UNIQUE NOT NULL,
-                    assigned_to BIGINT NULL,
-                    assigned_at TIMESTAMP NULL,
-                    INDEX idx_license_key (license_key),
-                    INDEX idx_assigned_to (assigned_to)
-                )
-            """)
             conn.commit()
-            log.info("Ensured tables user_keys & available_keys exist.")
             cur.close()
+            log.info("Ensured tables available_keys & user_keys exist.")
         except Error as e:
-            log.error(f"Error creating tables: {e}")
-            self.using_mysql = False
-        finally:
-            try:
-                conn.close()
-            except:
-                pass
-
-    def seed_available_keys(self, keys: List[str]):
-        """
-        Insert seed keys only if available_keys table is empty.
-        """
-        if not self.using_mysql:
-            # Memory mode already has available_keys_memory pre-loaded
-            return
-        conn = self.get_connection()
-        if not conn:
-            return
-        try:
-            cur = conn.cursor()
-            cur.execute("SELECT COUNT(*) FROM available_keys")
-            count = cur.fetchone()[0]
-            if count == 0:
-                log.info(f"Seeding {len(keys)} license keys...")
-                data = [(k,) for k in keys]
-                cur.executemany(
-                    "INSERT IGNORE INTO available_keys (license_key) VALUES (%s)",
-                    data
-                )
-                conn.commit()
-                log.info("Seed complete.")
-            else:
-                log.info("available_keys table already has data; skipping seed.")
-            cur.close()
-        except Error as e:
-            log.error(f"Seeding error: {e}")
+            log.error(f"Table creation error: {e}")
         finally:
             conn.close()
 
-    # -------- User key functions --------
+    # ------------- Key allocation / queries -------------
+    def user_has_key(self, discord_id: int) -> bool:
+        return bool(self.get_user_key(discord_id))
+
     def get_user_key(self, discord_id: int) -> str:
         if self.using_mysql:
             conn = self.get_connection()
             if not conn:
-                return user_keys_memory.get(discord_id, "")
+                return memory_assigned.get(discord_id, "")
             try:
                 cur = conn.cursor()
                 cur.execute("SELECT user_key FROM user_keys WHERE discord_id = %s", (discord_id,))
@@ -352,39 +169,15 @@ class StorageManager:
                 return row[0] if row else ""
             except Error as e:
                 log.error(f"get_user_key error: {e}")
-                return user_keys_memory.get(discord_id, "")
+                return memory_assigned.get(discord_id, "")
             finally:
                 conn.close()
         else:
-            return user_keys_memory.get(discord_id, "")
+            return memory_assigned.get(discord_id, "")
 
-    def save_user_key(self, discord_id: int, user_key: str):
-        if self.using_mysql:
-            conn = self.get_connection()
-            if not conn:
-                user_keys_memory[discord_id] = user_key
-                return
-            try:
-                cur = conn.cursor()
-                cur.execute("""
-                    INSERT INTO user_keys (discord_id, user_key)
-                    VALUES (%s, %s)
-                    ON DUPLICATE KEY UPDATE user_key = VALUES(user_key)
-                """, (discord_id, user_key))
-                conn.commit()
-                cur.close()
-            except Error as e:
-                log.error(f"save_user_key error: {e}")
-                user_keys_memory[discord_id] = user_key
-            finally:
-                conn.close()
-        else:
-            user_keys_memory[discord_id] = user_key
-
-    def allocate_static_key(self, discord_id: int) -> Optional[str]:
+    def allocate_key(self, discord_id: int, tag: str) -> Optional[str]:
         """
-        Allocate an unused static key to the user (if they don't already have one).
-        Returns the key or None if none available.
+        Assign first unassigned key (ordered by id). Returns key or None if none left.
         """
         existing = self.get_user_key(discord_id)
         if existing:
@@ -393,12 +186,12 @@ class StorageManager:
         if self.using_mysql:
             conn = self.get_connection()
             if not conn:
-                # fallback memory
-                return self._allocate_key_memory(discord_id)
+                return self._allocate_memory(discord_id)
             try:
                 cur = conn.cursor()
+                # fetch an unused key
                 cur.execute("""
-                    SELECT license_key FROM available_keys
+                    SELECT id, license_key FROM available_keys
                     WHERE assigned_to IS NULL
                     ORDER BY id ASC
                     LIMIT 1
@@ -407,37 +200,220 @@ class StorageManager:
                 if not row:
                     cur.close()
                     return None
-                key = row[0]
+                key_id, license_key = row
+                # mark assigned
                 cur.execute("""
                     UPDATE available_keys
-                    SET assigned_to = %s, assigned_at = CURRENT_TIMESTAMP
-                    WHERE license_key = %s
-                """, (discord_id, key))
+                    SET assigned_to = %s,
+                        assigned_tag = %s,
+                        assigned_at = CURRENT_TIMESTAMP
+                    WHERE id = %s
+                """, (discord_id, tag[:100], key_id))
+                # insert record into user_keys
+                cur.execute("""
+                    INSERT INTO user_keys (discord_id, user_key)
+                    VALUES (%s, %s)
+                    ON DUPLICATE KEY UPDATE user_key = VALUES(user_key)
+                """, (discord_id, license_key))
                 conn.commit()
                 cur.close()
-                self.save_user_key(discord_id, key)
-                return key
+                return license_key
             except Error as e:
-                log.error(f"allocate_static_key error: {e}")
+                log.error(f"allocate_key error: {e}")
                 return None
             finally:
                 conn.close()
         else:
-            return self._allocate_key_memory(discord_id)
+            return self._allocate_memory(discord_id)
 
-    def _allocate_key_memory(self, discord_id: int) -> Optional[str]:
-        for k in list(available_keys_memory):
-            if k not in assigned_keys_memory:
-                assigned_keys_memory.add(k)
-                user_keys_memory[discord_id] = k
-                return k
-        return None
+    def _allocate_memory(self, discord_id: int) -> Optional[str]:
+        if discord_id in memory_assigned:
+            return memory_assigned[discord_id]
+        if not memory_available_keys:
+            return None
+        key = memory_available_keys.pop(0)
+        memory_assigned[discord_id] = key
+        memory_key_to_user[key] = discord_id
+        return key
+
+    def import_keys(self, keys: List[str]) -> Tuple[int, int]:
+        """
+        Insert a list of raw key strings into available_keys (only new keys).
+        Returns (inserted_count, skipped_count)
+        """
+        cleaned = []
+        seen = set()
+        for k in keys:
+            k = k.strip()
+            if not k:
+                continue
+            if k in seen:
+                continue
+            seen.add(k)
+            cleaned.append(k)
+
+        if self.using_mysql:
+            if not cleaned:
+                return (0, 0)
+            conn = self.get_connection()
+            if not conn:
+                return (0, len(cleaned))
+            inserted = 0
+            skipped = 0
+            try:
+                cur = conn.cursor()
+                for key in cleaned:
+                    try:
+                        cur.execute("INSERT IGNORE INTO available_keys (license_key) VALUES (%s)", (key,))
+                        if cur.rowcount == 1:
+                            inserted += 1
+                        else:
+                            skipped += 1
+                    except Error:
+                        skipped += 1
+                conn.commit()
+                cur.close()
+            except Error as e:
+                log.error(f"import_keys error: {e}")
+                skipped += (len(cleaned) - inserted - skipped)
+            finally:
+                conn.close()
+            return (inserted, skipped)
+        else:
+            inserted = 0
+            skipped = 0
+            for key in cleaned:
+                if key in memory_available_keys or key in memory_key_to_user:
+                    skipped += 1
+                else:
+                    memory_available_keys.append(key)
+                    inserted += 1
+            return (inserted, skipped)
+
+    def list_keys(self, kind: str, page: int, page_size: int = 20) -> List[dict]:
+        """
+        kind: 'unused' or 'assigned'
+        Returns list of dicts with license_key and metadata
+        """
+        offset = (page - 1) * page_size
+        if self.using_mysql:
+            conn = self.get_connection()
+            if not conn:
+                return []
+            try:
+                cur = conn.cursor(dictionary=True)
+                if kind == "unused":
+                    cur.execute("""
+                        SELECT license_key, created_at
+                        FROM available_keys
+                        WHERE assigned_to IS NULL
+                        ORDER BY id ASC
+                        LIMIT %s OFFSET %s
+                    """, (page_size, offset))
+                else:
+                    cur.execute("""
+                        SELECT license_key, assigned_to, assigned_tag, assigned_at
+                        FROM available_keys
+                        WHERE assigned_to IS NOT NULL
+                        ORDER BY assigned_at DESC
+                        LIMIT %s OFFSET %s
+                    """, (page_size, offset))
+                rows = cur.fetchall()
+                cur.close()
+                return rows
+            except Error as e:
+                log.error(f"list_keys error: {e}")
+                return []
+            finally:
+                conn.close()
+        else:
+            if kind == "unused":
+                subset = memory_available_keys[offset:offset + page_size]
+                return [{"license_key": k} for k in subset]
+            else:
+                # assigned
+                items = [
+                    {"license_key": key, "assigned_to": uid}
+                    for uid, key in memory_assigned.items()
+                ]
+                items.sort(key=lambda x: x["license_key"])
+                subset = items[offset:offset + page_size]
+                return subset
+
+    def key_info_by_user(self, discord_id: int) -> Optional[dict]:
+        if self.using_mysql:
+            conn = self.get_connection()
+            if not conn:
+                return None
+            try:
+                cur = conn.cursor(dictionary=True)
+                cur.execute("""
+                    SELECT u.user_key, u.created_at, u.reset_count, u.last_reset
+                    FROM user_keys u
+                    WHERE u.discord_id = %s
+                """, (discord_id,))
+                row = cur.fetchone()
+                if row:
+                    # also fetch assigned_at from available_keys
+                    cur.execute("""
+                        SELECT assigned_at
+                        FROM available_keys
+                        WHERE license_key = %s
+                    """, (row["user_key"],))
+                    row2 = cur.fetchone()
+                    if row2 and "assigned_at" in row2:
+                        row["assigned_at"] = row2["assigned_at"]
+                cur.close()
+                return row
+            except Error as e:
+                log.error(f"key_info_by_user error: {e}")
+                return None
+            finally:
+                conn.close()
+        else:
+            if discord_id not in memory_assigned:
+                return None
+            return {
+                "user_key": memory_assigned[discord_id],
+                "created_at": None,
+                "reset_count": memory_user_reset_counts.get(discord_id, 0),
+                "last_reset": None,
+                "assigned_at": None
+            }
+
+    def key_info_by_key(self, key: str) -> Optional[dict]:
+        if self.using_mysql:
+            conn = self.get_connection()
+            if not conn:
+                return None
+            try:
+                cur = conn.cursor(dictionary=True)
+                cur.execute("""
+                    SELECT license_key, assigned_to, assigned_tag, assigned_at, created_at
+                    FROM available_keys
+                    WHERE license_key = %s
+                """, (key,))
+                row = cur.fetchone()
+                cur.close()
+                return row
+            except Error as e:
+                log.error(f"key_info_by_key error: {e}")
+                return None
+            finally:
+                conn.close()
+        else:
+            if key in memory_key_to_user:
+                uid = memory_key_to_user[key]
+                return {"license_key": key, "assigned_to": uid}
+            if key in memory_available_keys:
+                return {"license_key": key, "assigned_to": None}
+            return None
 
     def increment_reset_count(self, discord_id: int):
         if self.using_mysql:
             conn = self.get_connection()
             if not conn:
-                user_reset_counts[discord_id] = user_reset_counts.get(discord_id, 0) + 1
+                memory_user_reset_counts[discord_id] = memory_user_reset_counts.get(discord_id, 0) + 1
                 return
             try:
                 cur = conn.cursor()
@@ -451,49 +427,47 @@ class StorageManager:
                 cur.close()
             except Error as e:
                 log.error(f"increment_reset_count error: {e}")
-                user_reset_counts[discord_id] = user_reset_counts.get(discord_id, 0) + 1
             finally:
                 conn.close()
         else:
-            user_reset_counts[discord_id] = user_reset_counts.get(discord_id, 0) + 1
+            memory_user_reset_counts[discord_id] = memory_user_reset_counts.get(discord_id, 0) + 1
 
     def stats(self) -> dict:
         if self.using_mysql:
             conn = self.get_connection()
             if not conn:
-                return {"using_mysql": True, "reachable": False, "rows": None, "unused_keys": None}
+                return {"using_mysql": True, "reachable": False}
             try:
                 cur = conn.cursor()
                 cur.execute("SELECT COUNT(*) FROM user_keys")
-                user_count = cur.fetchone()[0]
+                assigned_count = cur.fetchone()[0]
                 cur.execute("SELECT COUNT(*) FROM available_keys WHERE assigned_to IS NULL")
-                unused = cur.fetchone()[0]
+                unused_count = cur.fetchone()[0]
                 cur.close()
                 return {
                     "using_mysql": True,
                     "reachable": True,
-                    "rows": user_count,
-                    "unused_keys": unused
+                    "assigned": assigned_count,
+                    "unused": unused_count
                 }
             except Error as e:
                 log.error(f"stats error: {e}")
-                return {"using_mysql": True, "reachable": False, "rows": None, "unused_keys": None}
+                return {"using_mysql": True, "reachable": False}
             finally:
                 conn.close()
         else:
-            unused = len([k for k in available_keys_memory if k not in assigned_keys_memory])
             return {
                 "using_mysql": False,
                 "reachable": True,
-                "rows": len(user_keys_memory),
-                "unused_keys": unused
+                "assigned": len(memory_assigned),
+                "unused": len(memory_available_keys)
             }
 
 storage = StorageManager()
 
-# =========================================================
+# ---------------------------------------------------------
 # Discord Bot Setup
-# =========================================================
+# ---------------------------------------------------------
 intents = discord.Intents.default()
 intents.guilds = True
 intents.guild_messages = True
@@ -503,14 +477,13 @@ intents.presences = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-AUTHORIZED_ROLE_ID = 1405035087703183492  # Replace with your real role ID
+AUTHORIZED_ROLE_ID = 1405035087703183492  # Replace with your authorized premium role ID
 
-# =========================================================
-# Luarmor API (still used for HWID reset)
-# =========================================================
+# ---------------------------------------------------------
+# Luarmor: HWID reset (still uses user_key)
+# ---------------------------------------------------------
 async def reset_user_hwid(user_key: str) -> bool:
     if not (LUARMOR_API_KEY and PROJECT_ID):
-        log.warning("Luarmor credentials missing; cannot reset HWID.")
         return False
     url = f"https://api.luarmor.net/v3/projects/{PROJECT_ID}/users/resethwid"
     headers = {
@@ -519,15 +492,31 @@ async def reset_user_hwid(user_key: str) -> bool:
     }
     data = {"user_key": user_key}
     async with aiohttp.ClientSession() as session:
-        async with session.post(url, headers=headers, json=data) as response:
-            if response.status != 200:
-                body = await response.text()
-                log.error(f"Luarmor reset error {response.status}: {body}")
-            return response.status == 200
+        async with session.post(url, headers=headers, json=data) as resp:
+            if resp.status != 200:
+                log.error(f"Luarmor HWID reset failed {resp.status}: {await resp.text()}")
+            return resp.status == 200
 
-# =========================================================
+# ---------------------------------------------------------
+# Utility
+# ---------------------------------------------------------
+def mask_key(k: str) -> str:
+    if len(k) <= 10:
+        return k
+    return f"{k[:6]}...{k[-4:]}"
+
+def user_is_admin(interaction: discord.Interaction) -> bool:
+    return (
+        interaction.user.guild_permissions.administrator or
+        interaction.user.id == interaction.guild.owner_id
+    )
+
+def user_has_role(user: discord.Member, role_id: int) -> bool:
+    return any(r.id == role_id for r in getattr(user, "roles", []))
+
+# ---------------------------------------------------------
 # Events
-# =========================================================
+# ---------------------------------------------------------
 @bot.event
 async def on_ready():
     log.info(f"Logged in as {bot.user} (ID: {bot.user.id})")
@@ -535,11 +524,11 @@ async def on_ready():
         synced = await bot.tree.sync()
         log.info(f"Synced {len(synced)} command(s).")
     except Exception as e:
-        log.error(f"Command sync failed: {e}")
+        log.error(f"Sync failed: {e}")
 
-# =========================================================
-# View (Buttons)
-# =========================================================
+# ---------------------------------------------------------
+# UI View (Panel Buttons)
+# ---------------------------------------------------------
 class PremiumPanelView(discord.ui.View):
     def __init__(self):
         super().__init__(timeout=None)
@@ -547,25 +536,16 @@ class PremiumPanelView(discord.ui.View):
     @discord.ui.button(label="Generate Key", style=discord.ButtonStyle.success, custom_id="generate_key")
     async def generate_key(self, interaction: discord.Interaction, button: discord.ui.Button):
         try:
-            role_ids = [r.id for r in getattr(interaction.user, "roles", [])]
-            if AUTHORIZED_ROLE_ID not in role_ids:
-                await interaction.response.send_message("❌ You do not have permission.", ephemeral=True)
+            if not user_has_role(interaction.user, AUTHORIZED_ROLE_ID):
+                await interaction.response.send_message("❌ You lack the required role.", ephemeral=True)
                 return
 
-            existing = storage.get_user_key(interaction.user.id)
-            if existing:
-                await interaction.response.send_message("⚠️ You already have a key. Use 'Get Script'.", ephemeral=True)
-                return
-
-            key = storage.allocate_static_key(interaction.user.id)
+            key = storage.allocate_key(interaction.user.id, f"{interaction.user}")
             if not key:
-                await interaction.response.send_message("❌ No keys available. Contact an admin.", ephemeral=True)
+                await interaction.response.send_message("❌ No unused keys remaining. Contact an admin.", ephemeral=True)
                 return
 
-            await interaction.response.send_message(
-                "✅ Key assigned! Use 'Get Script' to retrieve your loader script.",
-                ephemeral=True
-            )
+            await interaction.response.send_message("✅ Key assigned! Use 'Get Script' to retrieve it.", ephemeral=True)
         except Exception as e:
             log.error(f"generate_key error: {e}\n{traceback.format_exc()}")
             if not interaction.response.is_done():
@@ -574,16 +554,13 @@ class PremiumPanelView(discord.ui.View):
     @discord.ui.button(label="Get Script", style=discord.ButtonStyle.primary, custom_id="get_script")
     async def get_script(self, interaction: discord.Interaction, button: discord.ui.Button):
         try:
-            role_ids = [r.id for r in getattr(interaction.user, "roles", [])]
-            if AUTHORIZED_ROLE_ID not in role_ids:
-                await interaction.response.send_message("❌ You do not have permission.", ephemeral=True)
+            if not user_has_role(interaction.user, AUTHORIZED_ROLE_ID):
+                await interaction.response.send_message("❌ You lack the required role.", ephemeral=True)
                 return
-
             key = storage.get_user_key(interaction.user.id)
             if not key:
-                await interaction.response.send_message("❌ You don't have a key yet. Press 'Generate Key'.", ephemeral=True)
+                await interaction.response.send_message("❌ You do not have a key yet. Press 'Generate Key'.", ephemeral=True)
                 return
-
             script = (
                 f'script_key="{key}";\n'
                 f'loadstring(game:HttpGet("https://api.luarmor.net/files/v3/loaders/'
@@ -598,18 +575,15 @@ class PremiumPanelView(discord.ui.View):
     @discord.ui.button(label="Reset HWID", style=discord.ButtonStyle.danger, custom_id="reset_hwid")
     async def reset_hwid(self, interaction: discord.Interaction, button: discord.ui.Button):
         try:
-            role_ids = [r.id for r in getattr(interaction.user, "roles", [])]
-            if AUTHORIZED_ROLE_ID not in role_ids:
-                await interaction.response.send_message("❌ You do not have permission.", ephemeral=True)
+            if not user_has_role(interaction.user, AUTHORIZED_ROLE_ID):
+                await interaction.response.send_message("❌ You lack the required role.", ephemeral=True)
                 return
-
             key = storage.get_user_key(interaction.user.id)
             if not key:
-                await interaction.response.send_message("❌ You don't have a key yet.", ephemeral=True)
+                await interaction.response.send_message("❌ No key assigned.", ephemeral=True)
                 return
-
-            success = await reset_user_hwid(key)
-            if success:
+            ok = await reset_user_hwid(key)
+            if ok:
                 storage.increment_reset_count(interaction.user.id)
                 await interaction.response.send_message("✅ HWID reset successful.", ephemeral=True)
             else:
@@ -619,27 +593,22 @@ class PremiumPanelView(discord.ui.View):
             if not interaction.response.is_done():
                 await interaction.response.send_message("❌ Internal error.", ephemeral=True)
 
-# =========================================================
-# Slash Commands
-# =========================================================
-@bot.tree.command(name="sendpanel", description="Send the premium panel to this channel.")
-async def send_panel(interaction: discord.Interaction):
-    if interaction.user.id != interaction.guild.owner_id and not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message("❌ Admins only.", ephemeral=True)
+# ---------------------------------------------------------
+# Slash Commands (Panel & Admin)
+# ---------------------------------------------------------
+@bot.tree.command(name="sendpanel", description="Send the premium panel (admins).")
+async def sendpanel(interaction: discord.Interaction):
+    if not user_is_admin(interaction):
+        await interaction.response.send_message("❌ Admin only.", ephemeral=True)
         return
-
     embed = discord.Embed(
         title="Eps1llon Hub Premium Panel",
-        description="Use the buttons below to manage your premium access.",
+        description="Manage your premium access below.",
         color=discord.Color.gold()
     )
     embed.add_field(
         name="Instructions",
-        value=(
-            "1. Generate Key\n"
-            "2. Get Script\n"
-            "3. Reset HWID (if needed)"
-        ),
+        value="1. Generate Key\n2. Get Script\n3. Reset HWID",
         inline=False
     )
     embed.set_footer(text="Eps1llon Hub Premium")
@@ -647,23 +616,127 @@ async def send_panel(interaction: discord.Interaction):
     await interaction.channel.send(embed=embed, view=view)
     await interaction.response.send_message("✅ Panel sent.", ephemeral=True)
 
-@bot.tree.command(name="dbstatus", description="Show DB/key status (admins only).")
+@bot.tree.command(name="dbstatus", description="Show database/key stats (admin).")
 async def dbstatus(interaction: discord.Interaction):
-    if not interaction.user.guild_permissions.administrator:
-        await interaction.response.send_message("❌ Admins only.", ephemeral=True)
+    if not user_is_admin(interaction):
+        await interaction.response.send_message("❌ Admin only.", ephemeral=True)
         return
     stats = storage.stats()
-    msg = (
-        f"Using MySQL: {stats['using_mysql']}\n"
-        f"Reachable: {stats['reachable']}\n"
-        f"Assigned user rows: {stats['rows']}\n"
-        f"Unused keys remaining: {stats['unused_keys']}"
-    )
+    if not stats.get("reachable", True):
+        msg = "DB unreachable."
+    else:
+        msg = (
+            f"Using MySQL: {stats['using_mysql']}\n"
+            f"Assigned keys: {stats.get('assigned')}\n"
+            f"Unused keys: {stats.get('unused')}"
+        )
     await interaction.response.send_message(f"```{msg}```", ephemeral=True)
 
-# =========================================================
+# Import keys from a text file
+@bot.tree.command(name="importkeys", description="Import unused keys from a .txt file (one per line).")
+@app_commands.describe(file="Attach a .txt file containing one key per line.")
+async def importkeys(interaction: discord.Interaction, file: discord.Attachment):
+    if not user_is_admin(interaction):
+        await interaction.response.send_message("❌ Admin only.", ephemeral=True)
+        return
+    if not file.filename.lower().endswith(".txt"):
+        await interaction.response.send_message("❌ Please attach a .txt file.", ephemeral=True)
+        return
+    content = await file.read()
+    try:
+        lines = content.decode("utf-8", errors="ignore").splitlines()
+    except Exception:
+        await interaction.response.send_message("❌ Failed to decode file.", ephemeral=True)
+        return
+    inserted, skipped = storage.import_keys(lines)
+    await interaction.response.send_message(
+        f"✅ Import complete. Inserted: {inserted}, Skipped (duplicates/invalid): {skipped}",
+        ephemeral=True
+    )
+
+# List keys (unused or assigned)
+@bot.tree.command(name="listkeys", description="List unused or assigned keys (admin).")
+@app_commands.describe(
+    kind="unused or assigned",
+    page="Page number (starting at 1)",
+    full="Show full keys instead of masked (admin caution)."
+)
+async def listkeys(interaction: discord.Interaction, kind: str, page: int = 1, full: bool = False):
+    if not user_is_admin(interaction):
+        await interaction.response.send_message("❌ Admin only.", ephemeral=True)
+        return
+    kind = kind.lower()
+    if kind not in ("unused", "assigned"):
+        await interaction.response.send_message("❌ kind must be 'unused' or 'assigned'.", ephemeral=True)
+        return
+    if page < 1:
+        page = 1
+    rows = storage.list_keys(kind, page)
+    if not rows:
+        await interaction.response.send_message("No results for that page.", ephemeral=True)
+        return
+
+    lines = []
+    for r in rows:
+        key = r.get("license_key")
+        display = key if full else mask_key(key)
+        if kind == "unused":
+            lines.append(f"{display}")
+        else:
+            assigned_to = r.get("assigned_to")
+            tag = r.get("assigned_tag")
+            assigned_at = r.get("assigned_at")
+            lines.append(f"{display} -> {assigned_to} ({tag}) at {assigned_at}")
+    output = "\n".join(lines)
+    if full:
+        output = f"(FULL KEYS - KEEP PRIVATE)\n{output}"
+    await interaction.response.send_message(f"```{output}```", ephemeral=True)
+
+# Key / user lookup
+@bot.tree.command(name="keyinfo", description="Lookup key info by user or key (admin).")
+@app_commands.describe(
+    user="User to inspect (optional)",
+    key="Exact key string (optional)"
+)
+async def keyinfo(interaction: discord.Interaction, user: Optional[discord.Member] = None, key: Optional[str] = None):
+    if not user_is_admin(interaction):
+        await interaction.response.send_message("❌ Admin only.", ephemeral=True)
+        return
+    if (user is None and key is None) or (user is not None and key is not None):
+        await interaction.response.send_message("Provide either user OR key (not both).", ephemeral=True)
+        return
+
+    if user:
+        info = storage.key_info_by_user(user.id)
+        if not info:
+            await interaction.response.send_message("User has no key.", ephemeral=True)
+            return
+        msg = (
+            f"User: {user} ({user.id})\n"
+            f"Key: {info.get('user_key')}\n"
+            f"Assigned/Created: {info.get('created_at')}\n"
+            f"Reset Count: {info.get('reset_count')}\n"
+            f"Last Reset: {info.get('last_reset')}"
+        )
+        await interaction.response.send_message(f"```{msg}```", ephemeral=True)
+    else:
+        info = storage.key_info_by_key(key)
+        if not info:
+            await interaction.response.send_message("Key not found.", ephemeral=True)
+            return
+        assigned_to = info.get("assigned_to")
+        msg = (
+            f"Key: {info.get('license_key')}\n"
+            f"Assigned To: {assigned_to}\n"
+            f"Assigned Tag: {info.get('assigned_tag')}\n"
+            f"Assigned At: {info.get('assigned_at')}\n"
+            f"Created At: {info.get('created_at')}"
+        )
+        await interaction.response.send_message(f"```{msg}```", ephemeral=True)
+
+# ---------------------------------------------------------
 # Entrypoint
-# =========================================================
+# ---------------------------------------------------------
 def main():
     log.info(
         "Startup DB Summary host=%s db=%s port=%s using_mysql=%s",
