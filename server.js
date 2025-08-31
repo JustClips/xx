@@ -8,18 +8,16 @@ import {
 } from "discord.js";
 
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
-const CHANNEL_ID = "1410395105965375600"; // Fixed target channel
 
-if (!DISCORD_TOKEN) {
-  console.error("Missing DISCORD_TOKEN environment variable.");
-  process.exit(1);
-}
+// Fixed channel
+const CHANNEL_ID = "1410395105965375600";
+const CHANNEL_ONLY = true; // set false to apply in all channels
 
-let active = false; // toggled by !start / !stop
-const lastNicknameByUser = new Map();
+// Optional: set to a specific user ID (string). If empty = everyone in the channel(s).
+const TARGET_USER_ID = ""; // e.g. "123456789012345678"
 
-// Zesty / playful nickname pool (safe / non-harassing).
-// Feel free to add more entries. Keep them within Discord guidelines.
+// Empty list as requested. If you later add entries, the bot will pick from them randomly.
+// While this stays empty, a generated random nickname is used each message.
 const NICKNAMES = [
  "big cock rider",
 "dildo enjoyer",
@@ -41,31 +39,77 @@ const NICKNAMES = [
 "barking cat",
 "6-7?",
 "i will crack yo nuts like a nutcracker",
+"feet pics for 10$",
+"meow",
+"monkey",
 
 ];
 
-// Set true if you want sequential cycling instead of random
+// Sequential mode (only applies if you add nicknames). false = random choice from list.
 const SEQUENTIAL = false;
+
+if (!DISCORD_TOKEN) {
+  console.error("Missing DISCORD_TOKEN environment variable.");
+  process.exit(1);
+}
+
+// State
 let seqIndex = 0;
+const lastNicknameByUser = new Map();
+const inFlight = new Map(); // prevent overlapping edits per user
+
+// Random components for generator
+const RAND_ADJ = [
+  "Flux","Neon","Nova","Quantum","Hyper","Turbo","Pixel",
+  "Zesty","Meta","Ultra","Astro","Cyber","Glitch","Lunar",
+  "Vortex","Binary","Cosmic","Proto","Omega","Solar"
+];
+const RAND_CORE = [
+  "Spark","Drift","Pulse","Shard","Shift","Core","Node","Loop",
+  "Hex","Ray","Wave","Arc","Frame","Phase","Trace","Grid","Beam"
+];
+
+// Generate a nickname when list empty
+function generateDynamicNick() {
+  const adj = RAND_ADJ[Math.floor(Math.random() * RAND_ADJ.length)];
+  const core = RAND_CORE[Math.floor(Math.random() * RAND_CORE.length)];
+  // random alphanumeric segment
+  const tail = Math.random().toString(36).slice(2, 6); // 4 chars
+  const variant = Math.floor(Math.random() * 900 + 100); // 3 digits
+  return `${adj}${core}-${tail}${variant}`;
+}
 
 function nextNickname(userId) {
-  if (!NICKNAMES.length) return "Nickname";
+  if (NICKNAMES.length === 0) {
+    // purely dynamic
+    for (let i = 0; i < 5; i++) {
+      const nick = generateDynamicNick();
+      if (lastNicknameByUser.get(userId) !== nick) {
+        lastNicknameByUser.set(userId, nick);
+        return nick.slice(0, 32);
+      }
+    }
+    const fallback = generateDynamicNick().slice(0, 32);
+    lastNicknameByUser.set(userId, fallback);
+    return fallback;
+  }
+
   if (SEQUENTIAL) {
     const nick = NICKNAMES[seqIndex % NICKNAMES.length];
     seqIndex++;
     lastNicknameByUser.set(userId, nick);
-    return nick;
+    return nick.slice(0, 32);
   }
-  // Random with small loop to avoid immediate duplicate for that user
+
+  // Random from provided list
   for (let i = 0; i < 5; i++) {
     const nick = NICKNAMES[Math.floor(Math.random() * NICKNAMES.length)];
     if (lastNicknameByUser.get(userId) !== nick) {
       lastNicknameByUser.set(userId, nick);
-      return nick;
+      return nick.slice(0, 32);
     }
   }
-  // Fallback (just pick one)
-  const fallback = NICKNAMES[Math.floor(Math.random() * NICKNAMES.length)];
+  const fallback = NICKNAMES[Math.floor(Math.random() * NICKNAMES.length)].slice(0, 32);
   lastNicknameByUser.set(userId, fallback);
   return fallback;
 }
@@ -82,58 +126,58 @@ const client = new Client({
 
 client.once(Events.ClientReady, () => {
   console.log(`Logged in as ${client.user.tag}`);
-  console.log(`Watching channel ${CHANNEL_ID}. Type !start there (Manage Server required) to enable.`);
+  console.log(`Mode: instant per-message nickname change ${CHANNEL_ONLY ? `in channel ${CHANNEL_ID}` : "in all channels"}.`);
+  if (TARGET_USER_ID) {
+    console.log(`Target limited to user ID: ${TARGET_USER_ID}`);
+  } else {
+    console.log("Target: ALL users in scope.");
+  }
 });
 
-client.on(Events.MessageCreate, async (message) => {
-  if (message.channel.id !== CHANNEL_ID) return;
-  if (message.author.bot) return;
-
-  const content = message.content.trim().toLowerCase();
-
-  if (content === "!start") {
-    if (!message.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
-      message.reply("You lack permission (Manage Server required).").catch(() => {});
-      return;
-    }
-    if (active) {
-      message.reply("Already active.").catch(() => {});
-      return;
-    }
-    active = true;
-    message.reply("Per-message nickname changing ACTIVATED (zesty list).").catch(() => {});
-    return;
-  }
-
-  if (content === "!stop") {
-    if (!message.member.permissions.has(PermissionsBitField.Flags.ManageGuild)) {
-      message.reply("You lack permission (Manage Server required).").catch(() => {});
-      return;
-    }
-    if (!active) {
-      message.reply("Already stopped.").catch(() => {});
-      return;
-    }
-    active = false;
-    message.reply("Per-message nickname changing DISABLED.").catch(() => {});
-    return;
-  }
-
-  if (!active) return;
-
-  const member = message.member;
-  if (!member) return;
-
-  const me = message.guild.members.me;
+/**
+ * Attempt nickname change with small retry for transient failures.
+ */
+async function setNicknameWithRetry(member, newNick) {
+  const me = member.guild.members.me;
   if (!me) return;
   if (!me.permissions.has(PermissionsBitField.Flags.ManageNicknames)) return;
   if (!(me.roles.highest.comparePositionTo(member.roles.highest) > 0)) return;
 
-  const newNick = nextNickname(member.id);
+  const trimmed = newNick.slice(0, 32);
+  const MAX_ATTEMPTS = 2;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      await member.setNickname(trimmed, "Auto per-message nickname change");
+      return;
+    } catch (err) {
+      // Permissions/hierarchy or explicit refusal -> stop
+      if (err?.code === 50013 || err?.status === 403) return;
+      if (err?.status === 429) return; // rate-limit
+      if (attempt < MAX_ATTEMPTS) {
+        await new Promise(r => setTimeout(r, 200));
+        continue;
+      }
+    }
+  }
+}
+
+client.on(Events.MessageCreate, async (message) => {
+  if (message.author.bot) return;
+  if (!message.guild) return;
+  if (CHANNEL_ONLY && message.channel.id !== CHANNEL_ID) return;
+  if (TARGET_USER_ID && message.author.id !== TARGET_USER_ID) return;
+
+  const member = message.member;
+  if (!member) return;
+
+  // simple lock to avoid flooding if user spams
+  if (inFlight.get(member.id)) return;
+  inFlight.set(member.id, true);
   try {
-    await member.setNickname(newNick, "Per-message nickname change (zesty list)");
-  } catch {
-    // Ignore errors (permissions / rate limit / hierarchy)
+    const nick = nextNickname(member.id);
+    await setNicknameWithRetry(member, nick);
+  } finally {
+    inFlight.delete(member.id);
   }
 });
 
