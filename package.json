@@ -1,0 +1,17 @@
+{
+  "name": "discord-per-message-nick-bot",
+  "version": "1.0.2",
+  "description": "Discord bot that changes a user's nickname every message in a specific channel, toggled by !start / !stop.",
+  "type": "module",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18.17.0"
+  },
+  "dependencies": {
+    "discord.js": "^14.15.3",
+    "dotenv": "^16.4.5"
+  }
+}
