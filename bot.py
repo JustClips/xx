@@ -1,192 +1,162 @@
 import os
-import time
-import requests
+import random
+import asyncio
 import discord
 from discord.ext import commands
-from discord import app_commands, ui, Interaction, ButtonStyle
 from dotenv import load_dotenv
 
-# Load environment variables
+# =========================================================
+# Environment Variables (ONLY these two are used)
+# =========================================================
+# DISCORD_TOKEN = your bot token
+# CHANNEL_ID    = the numeric text channel ID where behavior applies
+# =========================================================
+
 load_dotenv()
-
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
-LUARMOR_API_KEY = os.getenv("LUARMOR_API_KEY")
-LUARMOR_PROJECT_ID = os.getenv("LUARMOR_PROJECT_ID")
-BASE_URL = "https://api.luarmor.net/v3"
+CHANNEL_ID = os.getenv("CHANNEL_ID")
 
-AUTHORIZED_ROLE = 1405035087703183492  # Your Discord role ID for access
-PANEL_CHANNEL_ID = 1411369197627248830  # Channel ID where the panel is posted
+if not DISCORD_TOKEN or not CHANNEL_ID:
+    raise SystemExit("Missing DISCORD_TOKEN or CHANNEL_ID environment variables.")
 
-HEADERS = {
-    "Authorization": LUARMOR_API_KEY,
-    "Content-Type": "application/json"
-}
+try:
+    CHANNEL_ID = int(CHANNEL_ID)
+except ValueError:
+    raise SystemExit("CHANNEL_ID must be an integer.")
 
-hwid_reset_timers = {}
-
+# =========================================================
+# Bot Setup
+# =========================================================
 intents = discord.Intents.default()
 intents.guilds = True
-intents.message_content = False
+intents.guild_messages = True
+intents.message_content = True
+intents.members = True  # Needed to change nicknames
 
 bot = commands.Bot(command_prefix="!", intents=intents)
+active = False  # Toggled by !start / !stop
 
-def safe_api_call(func, *args, **kwargs):
-    try:
-        resp = func(*args, **kwargs)
-        try:
-            return resp.json()
-        except Exception:
-            return {"success": False, "message": f"Invalid response from Luarmor ({resp.status_code}): {resp.text}"}
-    except Exception as e:
-        return {"success": False, "message": f"API call error: {e}"}
+# Simple word pools for nickname generation
+ADJECTIVES = [
+    "Zesty", "Fuzzy", "Icy", "Brave", "Cosmic", "Witty", "Quirky", "Spicy", "Mellow", "Silly",
+    "Bouncy", "Glitchy", "Nebula", "Rusty", "Swift", "Snazzy", "Giddy", "Chill", "Dizzy", "Soggy"
+]
+NOUNS = [
+    "Llama", "Otter", "Falcon", "Badger", "Kraken", "Panda", "Mantis", "Cobra", "Pixel", "Comet",
+    "Raptor", "Golem", "Lynx", "Phoenix", "Dragon", "Puffin", "Beetle", "Fox", "Aardvark", "Moose"
+]
 
-class LuarmorView(ui.View):
-    def __init__(self):
-        super().__init__(timeout=None)
+# Track last nickname per user to reduce immediate duplicates
+last_nick = {}
 
-    @ui.button(label="Generate Key", style=ButtonStyle.green, custom_id="generate_key")
-    async def generate_key(self, interaction: Interaction, button: ui.Button):
-        if not await has_role(interaction.user, interaction.guild):
-            return await interaction.response.send_message(
-                "You are not authorized to use this!", ephemeral=True)
-        data = safe_api_call(create_key, interaction.user.id)
-        key = data.get("user_key")
-        if key:
-            msg = f"🔑 **Your generated key:**\n```{key}```"
-        else:
-            msg = f"❌ Failed to generate key:\n{data.get('message', 'Unknown error')}"
-        await interaction.user.send(msg)
-        await interaction.response.send_message("✅ Key sent in your DMs!", ephemeral=True)
 
-    @ui.button(label="Get Key Info", style=ButtonStyle.blurple, custom_id="get_key")
-    async def get_key(self, interaction: Interaction, button: ui.Button):
-        if not await has_role(interaction.user, interaction.guild):
-            return await interaction.response.send_message(
-                "You are not authorized to use this!", ephemeral=True)
-        modal = KeyModal("get")
-        await interaction.response.send_modal(modal)
+def generate_nickname(user_id: int) -> str:
+    # Try a few times to avoid repeat
+    for _ in range(5):
+        adj = random.choice(ADJECTIVES)
+        noun = random.choice(NOUNS)
+        num = random.randint(100, 999)
+        nick = f"{adj}{noun}{num}"
+        if last_nick.get(user_id) != nick:
+            last_nick[user_id] = nick
+            return nick
+    # Fallback
+    nick = f"Nick{random.randint(0, 99999)}"
+    last_nick[user_id] = nick
+    return nick
 
-    @ui.button(label="Reset HWID", style=ButtonStyle.red, custom_id="reset_hwid")
-    async def reset_hwid(self, interaction: Interaction, button: ui.Button):
-        if not await has_role(interaction.user, interaction.guild):
-            return await interaction.response.send_message(
-                "You are not authorized to use this!", ephemeral=True)
-        modal = KeyModal("reset")
-        await interaction.response.send_modal(modal)
-
-class KeyModal(ui.Modal, title="Key Required"):
-    key = ui.TextInput(label="Enter Key", style=discord.TextStyle.short)
-
-    def __init__(self, action):
-        super().__init__()
-        self.action = action
-
-    async def on_submit(self, interaction: Interaction):
-        user_id = interaction.user.id
-        key_value = self.key.value.strip()
-        if self.action == "get":
-            data = safe_api_call(get_key_info, key_value)
-            if data.get("success") and data.get('users'):
-                user = data['users'][0]
-                embed = discord.Embed(
-                    title="Key Info - Eps1llon Hub Premium", color=discord.Color.blurple()
-                )
-                embed.add_field(name="Key", value=f"`{user.get('user_key', '-')}`", inline=False)
-                embed.add_field(name="Status", value=user.get("status", "-"), inline=True)
-                embed.add_field(name="HWID", value=user.get("identifier", "-"), inline=True)
-                embed.add_field(name="Discord ID", value=user.get("discord_id", "-"), inline=True)
-                expires = user.get("auth_expire", -1)
-                expires_fmt = "Never" if expires == -1 else f"<t:{expires}:f>"
-                embed.add_field(name="Expires At", value=expires_fmt, inline=True)
-                embed.add_field(name="Total Resets", value=str(user.get("total_resets", "0")), inline=True)
-                embed.add_field(name="Total Executions", value=str(user.get("total_executions", "0")), inline=True)
-                banned = "Yes" if user.get("banned") else "No"
-                embed.add_field(name="Banned", value=banned, inline=True)
-                try:
-                    await interaction.user.send(embed=embed)
-                    await interaction.response.send_message("✅ Key info sent in your DMs!", ephemeral=True)
-                except discord.Forbidden:
-                    await interaction.response.send_message("❌ Could not DM you, please enable DMs.", ephemeral=True)
-            else:
-                await interaction.response.send_message(
-                    f"❌ Failed to fetch key:\n{data.get('message', 'Unknown error')}", ephemeral=True)
-        elif self.action == "reset":
-            now = time.time()
-            last = hwid_reset_timers.get(user_id, 0)
-            if now - last < 7200:
-                left = int((7200 - (now - last)) / 60)
-                return await interaction.response.send_message(
-                    f"You can reset HWID again in {left} minutes.", ephemeral=True)
-            resp = safe_api_call(reset_hwid, key_value)
-            if resp.get("success"):
-                hwid_reset_timers[user_id] = now
-                try:
-                    await interaction.user.send("✅ HWID reset successful!")
-                    await interaction.response.send_message("HWID reset info sent in your DMs!", ephemeral=True)
-                except discord.Forbidden:
-                    await interaction.response.send_message("❌ Could not DM you, please enable DMs.", ephemeral=True)
-            else:
-                await interaction.response.send_message(
-                    f"❌ Failed to reset HWID:\n{resp.get('message', 'Unknown error')}", ephemeral=True)
-
-async def has_role(member, guild):
-    if guild is None:
-        return False
-    role = discord.utils.get(guild.roles, id=AUTHORIZED_ROLE)
-    if role is None:
-        return False
-    return role in getattr(member, "roles", [])
-
-# --- Luarmor API helpers ---
-def create_key(discord_id=None):
-    url = f"{BASE_URL}/projects/{LUARMOR_PROJECT_ID}/users"
-    data = {}
-    if discord_id:
-        data["discord_id"] = str(discord_id)
-    return requests.post(url, headers=HEADERS, json=data)
-
-def get_key_info(user_key):
-    url = f"{BASE_URL}/projects/{LUARMOR_PROJECT_ID}/users?user_key={user_key}"
-    return requests.get(url, headers=HEADERS)
-
-def reset_hwid(user_key):
-    url = f"{BASE_URL}/projects/{LUARMOR_PROJECT_ID}/users/resethwid"
-    return requests.post(url, headers=HEADERS, json={"user_key": user_key})
 
 @bot.event
 async def on_ready():
-    print(f"Logged in as {bot.user}")
-    try:
-        synced = await bot.tree.sync()
-        print(f"Synced {len(synced)} commands.")
-    except Exception as e:
-        print(f"Error syncing commands: {e}")
+    print(f"Logged in as {bot.user} (ID: {bot.user.id})")
+    print(f"Watching channel {CHANNEL_ID}. Use !start there to activate.")
+    # Try to fetch the channel to verify
+    channel = bot.get_channel(CHANNEL_ID)
+    if channel is None:
+        print("Warning: Channel not found in cache yet. It will be resolved on first message.")
 
-@bot.tree.command(name="panel", description="Post the Eps1llon Hub Premium Luarmor panel in the configured channel.")
-async def panel(interaction: Interaction):
-    if interaction.channel.id != PANEL_CHANNEL_ID:
-        await interaction.response.send_message(
-            f"Please use this command in <#{PANEL_CHANNEL_ID}>.", ephemeral=True)
+
+def has_manage_guild(member: discord.Member) -> bool:
+    return member.guild_permissions.manage_guild
+
+
+@bot.command(name="start")
+async def start_cmd(ctx: commands.Context):
+    global active
+    if ctx.channel.id != CHANNEL_ID:
         return
-    embed = discord.Embed(
-        title="Eps1llon Hub Premium - Luarmor Panel",
-        description=(
-            "Welcome to the **Eps1llon Hub Premium** License & HWID Management Panel!\n\n"
-            "Use the buttons below to:\n"
-            "• **Generate Key**\n"
-            "• **Get Key Info**\n"
-            "• **Reset HWID** (once every 2 hours)\n\n"
-            "> *Only users with the required role can interact.*"
-        ),
-        color=discord.Color.dark_magenta()
-    )
-    embed.set_footer(text="Eps1llon Hub Premium | Powered by Luarmor")
-    channel = interaction.guild.get_channel(PANEL_CHANNEL_ID)
-    if channel:
-        await channel.send(embed=embed, view=LuarmorView())
-        await interaction.response.send_message("Panel sent!", ephemeral=True)
-    else:
-        await interaction.response.send_message("Failed: Target channel not found.", ephemeral=True)
+    if not isinstance(ctx.author, discord.Member):
+        return
+    if not has_manage_guild(ctx.author):
+        await ctx.reply("You lack permission (Manage Server required).", mention_author=False)
+        return
+    if active:
+        await ctx.reply("Already active.", mention_author=False)
+        return
+    active = True
+    await ctx.reply("Per-message nickname changes ACTIVATED.", mention_author=False)
+
+
+@bot.command(name="stop")
+async def stop_cmd(ctx: commands.Context):
+    global active
+    if ctx.channel.id != CHANNEL_ID:
+        return
+    if not isinstance(ctx.author, discord.Member):
+        return
+    if not has_manage_guild(ctx.author):
+        await ctx.reply("You lack permission (Manage Server required).", mention_author=False)
+        return
+    if not active:
+        await ctx.reply("Already stopped.", mention_author=False)
+        return
+    active = False
+    await ctx.reply("Per-message nickname changes DISABLED.", mention_author=False)
+
+
+@bot.event
+async def on_message(message: discord.Message):
+    # Allow commands to process first / also required for commands to work
+    await bot.process_commands(message)
+
+    if message.author.bot:
+        return
+    if message.channel.id != CHANNEL_ID:
+        return
+    if not active:
+        return
+    if not isinstance(message.author, discord.Member):
+        return
+
+    member: discord.Member = message.author
+
+    # Check if bot can manage this member
+    if not member.guild.me:  # type: ignore
+        return
+    if not member.guild.me.guild_permissions.manage_nicknames:  # type: ignore
+        return
+    if not member.guild.me.top_role > member.top_role:  # type: ignore
+        return  # Role hierarchy prevents nickname change
+
+    new_nick = generate_nickname(member.id)
+    try:
+        await member.edit(nick=new_nick, reason="Per-message nickname change")
+    except discord.Forbidden:
+        pass  # Missing permission or hierarchy issue
+    except discord.HTTPException:
+        pass  # Rate limit or other HTTP issue ignored
+
+
+# Graceful shutdown (optional)
+async def shutdown():
+    await bot.close()
+
+
+def main():
+    try:
+        bot.run(DISCORD_TOKEN)
+    except KeyboardInterrupt:
+        print("Shutting down...")
 
 if __name__ == "__main__":
-    bot.run(DISCORD_TOKEN)
+    main()
