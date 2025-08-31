@@ -1,17 +1,12 @@
 import os
 import random
-import asyncio
 import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 
 # =========================================================
-# Environment Variables (ONLY these two are used)
+# Environment Variables
 # =========================================================
-# DISCORD_TOKEN = your bot token
-# CHANNEL_ID    = the numeric text channel ID where behavior applies
-# =========================================================
-
 load_dotenv()
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 CHANNEL_ID = os.getenv("CHANNEL_ID")
@@ -31,126 +26,253 @@ intents = discord.Intents.default()
 intents.guilds = True
 intents.guild_messages = True
 intents.message_content = True
-intents.members = True  # Needed to change nicknames
+intents.members = True
+intents.presences = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
-active = False  # Toggled by !start / !stop
 
-# Simple word pools for nickname generation
-ADJECTIVES = [
-    "Zesty", "Fuzzy", "Icy", "Brave", "Cosmic", "Witty", "Quirky", "Spicy", "Mellow", "Silly",
-    "Bouncy", "Glitchy", "Nebula", "Rusty", "Swift", "Snazzy", "Giddy", "Chill", "Dizzy", "Soggy"
+# Role that can generate keys
+AUTHORIZED_ROLE_ID = 1405035087703183492
+
+# In-memory storage for user keys (use a DB in production)
+user_keys = {}
+
+# Predefined key list
+KEYS = [
+    "QUvgeRZzlAKhjHjghbSvGtfcoluRRfoL",
+    "wWbpswiGsTFfcLFxzxjkkrTLYFwUidWW",
+    "TIEGWKiEhEjRXdHqUkhyiKIAZcChdKZz",
+    "bNBDNVuVrFQdwrqKMWNohByxnYziYIkY",
+    "DlyhHTIyyDrXoAjXmtDoOnDHdlNsxPir",
+    "jirPzvvkLESISKXlqSlUslCutMaICSYN",
+    "sOTBENfqtbYEuddiYWbbVPJufuUVvxAp",
+    "heDxGEEUBMAcTHgDfZFutPKNVRXTCmJZ",
+    "bXUreDnKPuqetHKIFxXTmCnlUEkTObSw",
+    "RZmYLiPzhwWnPTrNdwXasZnFCxvGHldI",
+    "eRvzBZWZEFAqhoMPRIuPhyOtErEavUVb",
+    "KpgCWTobOvPBhTRwgVKjBaHeYpndGitp",
+    "AxQlbnLPGmULhuoZetPafiumnEmVOhxn",
+    "RZDZFfKvwyQboGmDfmoYckdDIXgACxks",
+    "sZriZsjKzXStSdfRqwWKCyCamAKJYpzX",
+    "ilTjqHYaMvLsidGxPNhhoKnLjvWNJmfD",
+    "pbGfvXIrexDxPrhMgnDkICBPxQyCVqgP",
+    "RrxMlYEGVbdPDjWsSAOdmjXiXNVMzvoz",
+    "KpjVrMrqMEQboBksrupMKkEwXMZBgahX",
+    "oaKwiekvdqfhGkajPxTUoIDEEKjbyTEN",
+    "KjwucKnVNeMECYFObDYpcxwBqDTDqSsK",
+    "dUbLMXXuNJkKKRVJTIENQaFiNlsOqxZV",
+    "XlkHTlxEFtAmqonmfuhctyKvCdgKfgNn",
+    "WFkGBkARzouQljvVAQSZPMjwhFFkFwup",
+    "CvLKcswwTUmrzcffjTzwdhMUrInodrLS",
+    "feXQqQEJETMWKwGLrHkrrhmSVTuzFDuw",
+    "tgviIUVKdRISmIuNHuSVtgWRNbsEzzUa",
+    "BPiMDxKxNvXphkuQZOegOiAIqyZDYVuZ",
+    "ugzAbdEJccFqtGZlphSvsHIjgDsxvHcY",
+    "HXpfZEVKGSStQbtVYyldLIGamRKgmCAa",
+    "dBxoVcxhCRTQHYlesOhCCpjhHxSkpDaN",
+    "XxMpCtTkXRhRjFjOGQRvxIVaZrSQvHWg",
+    "KsinEGxjTNTwISyVufElNEGyFpTWZpgq",
+    "ggIaKmmFmIcGUpleyhLRJUIKxWWTrakm",
+    "jpWhxYPoHLTIWycALFLtKzhmBBpbztBn",
+    "dZXnihomGtnDzgXDTBwqlJMfSlfoCjuL",
+    "jBHKYDLIpgdgGeyodzyZNpiaGkinXSxd",
+    "WDOMoXuxDZvNEcZqYevzrdalugrgXsWA",
+    "kMjcVsABvdofaFPyJAYXLHfetlzGJQzH",
+    "IWJNVMJeZQmArEtihksAXDXkovmmhmPH",
+    "ESUFXJrTebvHjkyCXbHTVyNbhOVgOVct",
+    "dmmkMWtnLufHeiWuwCBjQCxebfRYVdkG",
+    "xyQOzZIrTWWpuduKSBhJSoirCkkCiakz",
+    "waXfIGipAgGYyMvZccLtWhTPhPZidycm",
+    "RkYChLieIAMnFHWPAhiyZZSijcKyDywY",
+    "GIhigIBlFeJWERfXqknAhOoKrDsHsaVH",
+    "JMbtSBzeKIgnfpApkJKgyqmaJXQzvFYR",
+    "iolszOUtfmjpJUTkqgxtOQXdvPUyhCCH",
+    "uZdDHPfreKfncOTCEhqDjgyrLjqeDVTJ",
+    "tqXEDVCPfPogCrnInMLASKuGdPOcAPDL",
+    "EwmrIFObpXRJazvZKOwGRkZxHUWXUCfC",
+    "jvNQejNBmkTsjGndcfYQAduOsaHahMnJ",
+    "XifvQJQSRKqVgiNPtlQcLWJZqGdfuXIF",
+    "oWvfJufZvzZuRyoGKeXntLjsnorzcSqR",
+    "bMYVZGLpdWcDzfPMJybimJVVEPkLnpct",
+    "mYkWgKeJhYMCTZAVrxDspxCTzEwkqcUa",
+    "uHBcREETrCZWnIAXVodERKYrGJLeiRGE",
+    "BDNemopWJbpPDGJGeqkenlEzerQWlCdX",
+    "SHIAlkhsiHagVgoxYEbnEmYvpkZdToKx",
+    "UFZXmbjwPCqbTTlkfofEnXrwZLDSrXiE",
+    "BjlHDhvdxGalqURAYDWSySQmHNKFZJjx",
+    "pZPVDhvvngRVgggbrdKaTshGTktSKXCC",
+    "tGeVXzwPJNevIjELCFeUvrELhlZLSMUt",
+    "fFHrrNARJqcaPTHCRpqItjSlkmYAkYOn",
+    "eCGbElLXXKJXdqOXqtBqoIRQuMwlYcYq",
+    "BCQpZoEiBBDJGSPhuqSurnHtEFuWKHII",
+    "szLmoGmzPgwqRDiVxWYnwmAzaWmKWLrW",
+    "XdKSfEEEwXMVmqBbMftsmhYeppxwlXFX",
+    "jalAVNsVzbZGoDhOjHsaoiDURULSrkZQ",
+    "xsNeadKIBBQmMsLXnqgMdedDGHxDgTHl",
+    "jzmXZSKOpeMdGvyaeTMpaeZwrjTFxIhn",
+    "eSUWfBWEjXjSppAdNsImtGOiJjuMMLNo",
+    "YgcgjfjmEUQOYJrNosEfBvRCZsWcJuMw",
+    "ySxWQbkiJFBwdiQTwGbcHGgIGxzrRRBY",
+    "eUPyQSOTOhkRLSMUPuiBcpBkwUfnNcZA",
+    "gOuQrohzDJaHYHkFErBYBzhHcTqiomeG",
+    "cgyzgvsvEevPxKTABxUcPXKuQUrNvnOI",
+    "EwvIxnoboEaQTKhmxouAQPvNXDIEUcYI",
+    "okImhBkschjuaChpdGEqnbcBxpWMvopU",
+    "ZWhxrDrSkMeCIBYTWMVKZUcXJpNNebhG",
+    "mWMUESLxfaLkrhGOuMuhRsiBQzJcnJwn",
+    "UTgOdziYSsfHtSQbWCJfqxehrntFZnXa",
+    "RGFIrtvUwXEvdaPKkESdlMKjBoEYRyEw",
+    "yljkaUlVVdKcKHubqeAmUfehLxQkgTMw",
+    "bqKUlkREfgurVCjyMbkCSOMUGRklrONZ",
+    "atKTJiMiiTukDuBmQCAXxqUvQMUOkvvt",
+    "tGSxyiswBHlScaxYxkLvSgOEUtCrVNeZ",
+    "hpcjklkGUpkFlZhLkmQaLFGzNIwsUuGg",
+    "UKCCYhvYpNuOqwkzKQyhZVcaPkKPCboe",
+    "kYSHKNsbHQLpHBFIYlOBzoKlKwKsSgNW",
+    "XFSYQyysaLAFvtvAeXiWYlUIijUBnaKu",
+    "EHQJfgqOxToTtkznLOBYFOGxIEYOuyas",
+    "eTSOauhzDaFQaTvbqODuFMcQlsHCvtwo",
+    "sLgfIJSJHNGpaAJIyrLQbLXfnGGtqcAa",
+    "HcREEIRcBDopkauBwuOOGtgLphSDCCIk",
+    "gVWLSmGyuNPRCTIqORdhwSWUCjCWxWJT",
+    "vOSAWwPSPPPQXZeOCyRKJUPMwfbIReZk",
+    "czQMBdxZWlOaXEUjkOXHcLPoZcDUHyiV",
+    "OfngloCvrxywRFkUjMKyegfujfVsdsTh",
+    "QBjvLhYwexsqVZkFCpEjdkIzgTpJamrN",
+    "RpinLWTQUbuSIJrUKUOQTvAZHOIaFBds",
+    "qDckKEMnPPJmlyssodJHQYzYZhXABjMt",
+    "xfDYwQDdgqubRRsMkOvSuIOAVwJciWNP",
+    "BeAJraGBuOpyymRtlsCLUcWPWsxbvDYk",
+    "RausdeCmkQdxsCRyJmdPPIlJPUCGFcZd",
+    "bMjunATwpYIvuKCqnIkGqKtRKBuwXioq",
+    "FqvPttCMWPXvWBUNBOvklqdKmIiAFByk",
+    "KtUujDdjuMEQLBAEsbqYXBoagnMtXIyc",
+    "vksskhbLxFVsCrWBJwrENrStWZKOeLzA",
+    "GgrviATeBRcQzyrYMNzOIUEJUsfgRSSJ",
+    "VwpxGTIHjAlalEvVTQQfHxmoFdITjLql",
+    "yGMOZrFBmIkNzOlpXXjUwOPJUVpqmJWN",
+    "HgQdlrDAhalkAdteTbIqQzPzZHdACTjg",
+    "ZVTFkcWpIigjyrTAjKilkZyYqipYWXwA",
+    "SoErTTMGNxkWLXtCpQgRHjubeKFMlzjd",
+    "UaOaYdoQyRMNNLcgqceyOTmUoLpaZCIm",
+    "WawEuGcXCrzDhRALRrLICkWgynsmAaRt",
+    "ELGKhDNISQDNdXzTbSQcRqsNABKmbMGa",
+    "RctFBjEDvYXvYGhQvrSLQtNkIbwyaHCL",
+    "bPsTunvWFnYffAXczAfTRWLSGImJIQRq",
+    "DaIDnmZbhQRrkHWBRsIBkchZeZZkOnQl",
+    "VuJgEfQhfuCHcfZaHafbgcITcCNfuppN",
+    "qsaUMWcLYUiYfQKRNkajRtsjxXXTGGez",
+    "TTObxrGuJoeXgmxWVpOJyTpKSGqviWMu",
+    "uHWplqyosYSbFcdFXJmiJKFErsbZZmlL",
+    "udjoRolGdqeZZmFrsZnWxJCQTZTBirxm",
+    "EyGhIDPsbLOeiwQcGZyrnTuGMbonLUPy",
+    "wfTgWkvFlfPslaiLnZicVPazTjypxdKk",
+    "xKpMxNxTSydGSThGQpdDMIpmQszwxZff",
+    "nESXUxINVOKdbpVVHjzNxEfgQTXpkGhx",
+    "ErniGwArsOvlZGTBtasILaFxFlRONeMf",
+    "dgasiQkImDccWljhKcBNhCuyJRYjVNRS",
+    "NlPYKzmWtLYRtTOIGuKURzVdRsJSYSGv",
+    "xgGBYmWwEqpsbtIDqSiklieCyXAuKNOb",
+    "SqgWlJdgxUHrQofBvFKlAcZgyUKkqUiy",
+    "dtwkIgRJNUwJbPIVlhkPPHHttJnWYGOo",
+    "tsNygdioPseqmftMVyVZioRVZspZvuUu",
+    "jYSwTxKLaCCkCqVXdbDEYUObYTMIbaTN",
+    "eoJYmDAUWMBgmNaEjJTGkwzoPYUcrSOX",
+    "ZaCwFwbbRSTmvqIqNtFjFncAAOOiDQbb",
+    "lBYmEGMRdufSTnmmcYJPBUYtWolWWWBu",
+    "QjDstGhXTJGLPYQWkqBgZACdloUzhTsF",
+    "vgAODhbcKGthXJKffmrvwlVnSZkaLsUM",
+    "IoJfhrpFvHhEIwIJPhSccSExAUrCuVfu",
+    "hCkKFSiDYWjCtTIIHELJAxRToQCFkZuc",
+    "bJnsRXOBYdVRSCfNgEgPhMlfsLcnsTeB",
+    "abeLYGYXBYNhcNELPahuQtoEQeUqKcjv",
+    "kBDdrgVpPMZbonHLjqSnmsSITHRVfYOl",
+    "lTFXBjIikbIxKwfoVRCAWTsVHPEDEJRc",
+    "BUbamkbtaHZGKOXhDYdOEdxOEzBeAZNp",
+    "deTnXHbRerXMVmxMdubpTUTCmFsClaFA"
 ]
-NOUNS = [
-    "Llama", "Otter", "Falcon", "Badger", "Kraken", "Panda", "Mantis", "Cobra", "Pixel", "Comet",
-    "Raptor", "Golem", "Lynx", "Phoenix", "Dragon", "Puffin", "Beetle", "Fox", "Aardvark", "Moose"
-]
 
-# Track last nickname per user to reduce immediate duplicates
-last_nick = {}
+# =========================================================
+# Helper Functions
+# =========================================================
 
+def generate_key(user_id: int) -> str:
+    if user_id in user_keys:
+        return user_keys[user_id]
+    key = random.choice(KEYS)
+    user_keys[user_id] = key
+    return key
 
-def generate_nickname(user_id: int) -> str:
-    # Try a few times to avoid repeat
-    for _ in range(5):
-        adj = random.choice(ADJECTIVES)
-        noun = random.choice(NOUNS)
-        num = random.randint(100, 999)
-        nick = f"{adj}{noun}{num}"
-        if last_nick.get(user_id) != nick:
-            last_nick[user_id] = nick
-            return nick
-    # Fallback
-    nick = f"Nick{random.randint(0, 99999)}"
-    last_nick[user_id] = nick
-    return nick
+def reset_key(user_id: int) -> bool:
+    if user_id in user_keys:
+        del user_keys[user_id]
+        return True
+    return False
 
+# =========================================================
+# Bot Events
+# =========================================================
 
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user} (ID: {bot.user.id})")
-    print(f"Watching channel {CHANNEL_ID}. Use !start there to activate.")
-    # Try to fetch the channel to verify
-    channel = bot.get_channel(CHANNEL_ID)
-    if channel is None:
-        print("Warning: Channel not found in cache yet. It will be resolved on first message.")
-
-
-def has_manage_guild(member: discord.Member) -> bool:
-    return member.guild_permissions.manage_guild
-
-
-@bot.command(name="start")
-async def start_cmd(ctx: commands.Context):
-    global active
-    if ctx.channel.id != CHANNEL_ID:
-        return
-    if not isinstance(ctx.author, discord.Member):
-        return
-    if not has_manage_guild(ctx.author):
-        await ctx.reply("You lack permission (Manage Server required).", mention_author=False)
-        return
-    if active:
-        await ctx.reply("Already active.", mention_author=False)
-        return
-    active = True
-    await ctx.reply("Per-message nickname changes ACTIVATED.", mention_author=False)
-
-
-@bot.command(name="stop")
-async def stop_cmd(ctx: commands.Context):
-    global active
-    if ctx.channel.id != CHANNEL_ID:
-        return
-    if not isinstance(ctx.author, discord.Member):
-        return
-    if not has_manage_guild(ctx.author):
-        await ctx.reply("You lack permission (Manage Server required).", mention_author=False)
-        return
-    if not active:
-        await ctx.reply("Already stopped.", mention_author=False)
-        return
-    active = False
-    await ctx.reply("Per-message nickname changes DISABLED.", mention_author=False)
-
-
-@bot.event
-async def on_message(message: discord.Message):
-    # Allow commands to process first / also required for commands to work
-    await bot.process_commands(message)
-
-    if message.author.bot:
-        return
-    if message.channel.id != CHANNEL_ID:
-        return
-    if not active:
-        return
-    if not isinstance(message.author, discord.Member):
-        return
-
-    member: discord.Member = message.author
-
-    # Check if bot can manage this member
-    if not member.guild.me:  # type: ignore
-        return
-    if not member.guild.me.guild_permissions.manage_nicknames:  # type: ignore
-        return
-    if not member.guild.me.top_role > member.top_role:  # type: ignore
-        return  # Role hierarchy prevents nickname change
-
-    new_nick = generate_nickname(member.id)
+    print(f"Watching channel {CHANNEL_ID}.")
     try:
-        await member.edit(nick=new_nick, reason="Per-message nickname change")
-    except discord.Forbidden:
-        pass  # Missing permission or hierarchy issue
-    except discord.HTTPException:
-        pass  # Rate limit or other HTTP issue ignored
+        synced = await bot.tree.sync()
+        print(f"Synced {len(synced)} command(s).")
+    except Exception as e:
+        print(f"Failed to sync commands: {e}")
 
+# =========================================================
+# Slash Commands
+# =========================================================
 
-# Graceful shutdown (optional)
-async def shutdown():
-    await bot.close()
+@bot.tree.command(name="generatekey", description="Generate a key linked to your user ID.")
+async def generate_key_command(interaction: discord.Interaction):
+    user = interaction.user
+    role_ids = [role.id for role in getattr(user, 'roles', [])]
+    if AUTHORIZED_ROLE_ID not in role_ids:
+        await interaction.response.send_message(
+            "❌ You do not have permission to use this command.", ephemeral=True
+        )
+        return
 
+    key = generate_key(user.id)
+    await interaction.response.send_message(
+        f"🔑 Your key is: `{key}`\nIt is now linked to your account.",
+        ephemeral=True
+    )
+
+# Reset Key Button
+class ResetKeyView(discord.ui.View):
+    def __init__(self, user_id: int):
+        super().__init__(timeout=60)
+        self.user_id = user_id
+
+    @discord.ui.button(label="Reset Key", style=discord.ButtonStyle.danger)
+    async def reset_key_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("🚫 You cannot reset someone else's key.", ephemeral=True)
+            return
+
+        success = reset_key(self.user_id)
+        if success:
+            await interaction.response.send_message("✅ Your key has been reset.", ephemeral=True)
+        else:
+            await interaction.response.send_message("⚠️ You don't have a key to reset.", ephemeral=True)
+
+@bot.tree.command(name="resetkey", description="Reset your generated key.")
+async def reset_key_command(interaction: discord.Interaction):
+    view = ResetKeyView(interaction.user.id)
+    await interaction.response.send_message(
+        "Click the button below to reset your key:",
+        view=view,
+        ephemeral=True
+    )
+
+# =========================================================
+# Main
+# =========================================================
 
 def main():
     try:
