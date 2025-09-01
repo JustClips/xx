@@ -58,7 +58,7 @@ class ScriptPanelView(discord.ui.View):
             embed.description = "You already have a key. Your script is in the message below."
             await interaction.followup.send(embed=embed, ephemeral=True)
             # Send a new message with just the script for easy copying on mobile
-            await interaction.followup.send(f"```lua\n{script_string}\n```", ephemeral=True)
+            await interaction.followup.send(script_string, ephemeral=True)
             return
 
         # If no key, generate a new one
@@ -78,7 +78,7 @@ class ScriptPanelView(discord.ui.View):
                 embed.description = "Your new key has been generated and linked to your Discord account. Your script is in the message below."
                 await interaction.followup.send(embed=embed, ephemeral=True)
                 # Send a new message with just the script for easy copying on mobile
-                await interaction.followup.send(f"```lua\n{script_string}\n```", ephemeral=True)
+                await interaction.followup.send(script_string, ephemeral=True)
             else:
                 await interaction.followup.send(f"Failed to generate a key. API Error: {data.get('message', 'Unknown error.')}", ephemeral=True)
         except requests.exceptions.RequestException as e:
