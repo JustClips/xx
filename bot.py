@@ -55,10 +55,10 @@ class ScriptPanelView(discord.ui.View):
             key = user_data["user_key"]
             script_string = f'script_key="{key}";loadstring(game:HttpGet("{LUARMOR_LOADER_URL}"))()'
             embed = discord.Embed(title="Your Script Key", color=discord.Color.green())
-            embed.description = "You already have a key. Your script is in the message below. **Tap the copy button on mobile!**"
+            embed.description = "You already have a key. Your script is in the message below. **Press and hold to copy it.**"
             await interaction.followup.send(embed=embed, ephemeral=True)
-            # Send a new message formatted as a code block for the mobile copy button
-            await interaction.followup.send(f"```{script_string}```", ephemeral=True)
+            # Send a new message with the raw script string for easy copying
+            await interaction.followup.send(script_string, ephemeral=True)
             return
 
         # If no key, generate a new one
@@ -75,10 +75,10 @@ class ScriptPanelView(discord.ui.View):
                 new_key = data["user_key"]
                 script_string = f'script_key="{new_key}";loadstring(game:HttpGet("{LUARMOR_LOADER_URL}"))()'
                 embed = discord.Embed(title="✅ Key Generated Successfully!", color=discord.Color.green())
-                embed.description = "Your new key has been generated and linked to your Discord account. Your script is in the message below. **Tap the copy button on mobile!**"
+                embed.description = "Your new key has been generated and linked to your Discord account. Your script is in the message below. **Press and hold to copy it.**"
                 await interaction.followup.send(embed=embed, ephemeral=True)
-                # Send a new message formatted as a code block for the mobile copy button
-                await interaction.followup.send(f"```{script_string}```", ephemeral=True)
+                # Send a new message with the raw script string for easy copying
+                await interaction.followup.send(script_string, ephemeral=True)
             else:
                 await interaction.followup.send(f"Failed to generate a key. API Error: {data.get('message', 'Unknown error.')}", ephemeral=True)
         except requests.exceptions.RequestException as e:
