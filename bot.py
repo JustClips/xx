@@ -14,7 +14,8 @@ LUARMOR_PROJECT_ID = os.environ.get("PROJECT_ID", "YOUR_LUARMOR_PROJECT_ID_HERE"
 REQUIRED_ROLE_ID = 1405035087703183492 
 
 LUARMOR_BASE_URL = "https://api.luarmor.net/v3"
-LUARMOR_LOADER_URL = f"https://api.luarmor.net/files/v3/loaders/{LUARMOR_PROJECT_ID}.lua"
+# Corrected the loader URL to the static link you provided.
+LUARMOR_LOADER_URL = "https://api.luarmor.net/files/v3/loaders/f40a8b8e2d4ea7ce9d8b28eff8c2676d.lua"
 
 
 # --- PERSISTENT VIEW FOR SCRIPT PANEL ---
@@ -24,12 +25,14 @@ class ScriptPanelView(discord.ui.View):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         """Checks if the user has the required role before any button callback is run."""
+        # Ensure the interaction is in a guild context
         if not interaction.guild or not isinstance(interaction.user, discord.Member):
             await interaction.response.send_message("This interaction can only be used in a server.", ephemeral=True)
             return False
 
         role = interaction.guild.get_role(REQUIRED_ROLE_ID)
         if role is None:
+            # This is a server-side configuration error, let the user know.
             print(f"Error: Role with ID {REQUIRED_ROLE_ID} not found in guild {interaction.guild.name}")
             await interaction.response.send_message("Configuration error: The required role could not be found on this server.", ephemeral=True)
             return False
@@ -40,8 +43,8 @@ class ScriptPanelView(discord.ui.View):
             
         return True
 
-    @discord.ui.button(label="Redeem Script", style=discord.ButtonStyle.success, custom_id="persistent_view:redeem_script")
-    async def redeem_script_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+    @discord.ui.button(label="Get Script", style=discord.ButtonStyle.success, custom_id="persistent_view:get_script")
+    async def get_script_button(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True, thinking=True)
         
         discord_id = str(interaction.user.id)
@@ -51,10 +54,10 @@ class ScriptPanelView(discord.ui.View):
         if user_data and user_data.get("user_key"):
             key = user_data["user_key"]
             script_string = f'script_key="{key}";loadstring(game:HttpGet("{LUARMOR_LOADER_URL}"))()'
-            await interaction.followup.send(f"You have already redeemed a key. Here is your script:\n```{script_string}```", ephemeral=True)
+            await interaction.followup.send(f"You already have a key. Here is your script:\n```{script_string}```", ephemeral=True)
             return
 
-        # If no key, generate a new one (permanent by default)
+        # If no key, generate a new one
         url = f"{LUARMOR_BASE_URL}/projects/{LUARMOR_PROJECT_ID}/users"
         headers = {"Authorization": LUARMOR_API_KEY, "Content-Type": "application/json"}
         payload = {"discord_id": discord_id}
@@ -67,12 +70,12 @@ class ScriptPanelView(discord.ui.View):
             if data.get("success") and data.get("user_key"):
                 new_key = data["user_key"]
                 script_string = f'script_key="{new_key}";loadstring(game:HttpGet("{LUARMOR_LOADER_URL}"))()'
-                await interaction.followup.send(f"Your key has been redeemed! Here is your personal script:\n```{script_string}```", ephemeral=True)
+                await interaction.followup.send(f"Your key has been generated! Here is your script:\n```{script_string}```", ephemeral=True)
             else:
-                await interaction.followup.send(f"Failed to redeem a key. API Error: {data.get('message', 'Unknown error.')}", ephemeral=True)
+                await interaction.followup.send(f"Failed to generate a key. API Error: {data.get('message', 'Unknown error.')}", ephemeral=True)
         except requests.exceptions.RequestException as e:
             print(f"Error generating key for user {discord_id}: {e}")
-            await interaction.followup.send("An API error occurred while redeeming your key.", ephemeral=True)
+            await interaction.followup.send("An API error occurred while generating your key.", ephemeral=True)
 
     @discord.ui.button(label="Reset HWID", style=discord.ButtonStyle.primary, custom_id="persistent_view:reset_hwid")
     async def reset_hwid_button(self, interaction: discord.Interaction, button: discord.ui.Button):
@@ -82,7 +85,7 @@ class ScriptPanelView(discord.ui.View):
         user_data = await get_user_by_discord_id(discord_id)
 
         if not user_data or not user_data.get("user_key"):
-            await interaction.followup.send("Could not find a key linked to your Discord account. Please redeem a script first.", ephemeral=True)
+            await interaction.followup.send("Could not find a key linked to your Discord account. Please get a script first.", ephemeral=True)
             return
 
         user_key = user_data["user_key"]
@@ -212,12 +215,12 @@ async def reset_hwid(interaction: discord.Interaction):
         await interaction.followup.send(f"Error: {error_message}", ephemeral=True)
 
 # --- ADMIN COMMANDS ---
-@bot.tree.command(name="panelsend", description="[Admin] Sends the script redemption panel to the current channel.")
+@bot.tree.command(name="panelsend", description="[Admin] Sends the script panel to the current channel.")
 @app_commands.checks.has_permissions(administrator=True)
 async def panelsend(interaction: discord.Interaction):
     embed = discord.Embed(
-        title="Script Redemption Panel",
-        description="Click the 'Redeem Script' button below to generate your personal, permanent key.\n\nYour key will be sent to you in a private message.",
+        title="Script Panel",
+        description="Click the buttons below to get your script or manage your account.",
         color=discord.Color.dark_purple()
     )
     embed.set_footer(text="Note: You must have the required role to use these buttons.")
@@ -262,10 +265,7 @@ async def on_tree_error(interaction: discord.Interaction, error: app_commands.Ap
     else:
         print(f"Unhandled command error: {error}")
         if not interaction.response.is_done():
-            try:
-                await interaction.response.send_message("An unexpected error occurred.", ephemeral=True)
-            except discord.errors.InteractionResponded:
-                pass # Already responded to
+            await interaction.response.send_message("An unexpected error occurred.", ephemeral=True)
         else:
             await interaction.followup.send("An unexpected error occurred.", ephemeral=True)
 
@@ -279,6 +279,7 @@ if __name__ == "__main__":
         print("!!! The script will now try to run using environment variables. !!!")
         print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
     
+    # Check if the critical environment variables are loaded
     if not all([os.environ.get("DISCORD_TOKEN"), os.environ.get("LUARMOR_API_KEY"), os.environ.get("PROJECT_ID")]):
          print("CRITICAL ERROR: One or more required environment variables (DISCORD_TOKEN, LUARMOR_API_KEY, PROJECT_ID) are not set.")
     else:
