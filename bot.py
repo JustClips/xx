@@ -54,7 +54,9 @@ class ScriptPanelView(discord.ui.View):
         if user_data and user_data.get("user_key"):
             key = user_data["user_key"]
             script_string = f'script_key="{key}";loadstring(game:HttpGet("{LUARMOR_LOADER_URL}"))()'
-            await interaction.followup.send(f"You already have a key. Here is your script:\n```{script_string}```", ephemeral=True)
+            embed = discord.Embed(title="Your Script Key", color=discord.Color.green())
+            embed.description = f"You already have a key. Here is your script:\n```lua\n{script_string}\n```"
+            await interaction.followup.send(embed=embed, ephemeral=True)
             return
 
         # If no key, generate a new one
@@ -70,7 +72,9 @@ class ScriptPanelView(discord.ui.View):
             if data.get("success") and data.get("user_key"):
                 new_key = data["user_key"]
                 script_string = f'script_key="{new_key}";loadstring(game:HttpGet("{LUARMOR_LOADER_URL}"))()'
-                await interaction.followup.send(f"Your key has been generated! Here is your script:\n```{script_string}```", ephemeral=True)
+                embed = discord.Embed(title="✅ Key Generated Successfully!", color=discord.Color.green())
+                embed.description = f"Your new key has been generated and linked to your Discord account. Here is your script:\n```lua\n{script_string}\n```"
+                await interaction.followup.send(embed=embed, ephemeral=True)
             else:
                 await interaction.followup.send(f"Failed to generate a key. API Error: {data.get('message', 'Unknown error.')}", ephemeral=True)
         except requests.exceptions.RequestException as e:
@@ -219,9 +223,20 @@ async def reset_hwid(interaction: discord.Interaction):
 @app_commands.checks.has_permissions(administrator=True)
 async def panelsend(interaction: discord.Interaction):
     embed = discord.Embed(
-        title="Script Panel",
-        description="Click the buttons below to get your script or manage your account.",
-        color=discord.Color.dark_purple()
+        title="Eps1lon Hub Premium",
+        description="Access your premium script and manage your account seamlessly.",
+        color=discord.Color.blue()
+    )
+    embed.set_thumbnail(url="https://i.imgur.com/CluE3sn.png") # Generic futuristic logo
+    embed.add_field(
+        name="Get Your Script", 
+        value="Press the `Get Script` button to instantly receive your unique script key. If you're new, a key will be generated and linked to your account.",
+        inline=False
+    )
+    embed.add_field(
+        name="Reset Your HWID",
+        value="Need to switch computers? Press the `Reset HWID` button to clear your current hardware lock.",
+        inline=False
     )
     embed.set_footer(text="Note: You must have the required role to use these buttons.")
     await interaction.channel.send(embed=embed, view=ScriptPanelView())
